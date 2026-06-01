@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { theme } from "@52archive/ui";
 import { toast } from "sonner";
 import { io as ioClient, Socket } from "socket.io-client";
@@ -52,6 +52,41 @@ function minutesRemaining(expiresAt: string | null): number {
 export default function GamesPage() {
   const [allGames, setAllGames] = useState<GameListing[]>([]);
   const [selectedGame, setSelectedGame] = useState<GameListing | null>(null);
+
+  const [searchQuery, setSearchQuery] = useState("");
+  const [minPlaytime, setMinPlaytime] = useState<number | "">("");
+  const [maxPlaytime, setMaxPlaytime] = useState<number | "">("");
+  const [minPlayersFilter, setMinPlayersFilter] = useState<number | "">("");
+  const [maxPlayersFilter, setMaxPlayersFilter] = useState<number | "">("");
+
+  const filteredGames = useMemo(() => {
+    return allGames.filter((game) => {
+      // 1. Search Query
+      if (searchQuery.trim()) {
+        const query = searchQuery.toLowerCase();
+        const matchesTitle = game.title.toLowerCase().includes(query);
+        const matchesSubtitle = game.subtitle?.toLowerCase().includes(query) ?? false;
+        const matchesSummary = game.summary.toLowerCase().includes(query);
+        const matchesTags = game.tags.some(t => t.toLowerCase().includes(query));
+        if (!matchesTitle && !matchesSubtitle && !matchesSummary && !matchesTags) {
+          return false;
+        }
+      }
+
+      // 2. Playtime Range
+      if (minPlaytime !== "" && game.playTimeMinutes < minPlaytime) return false;
+      if (maxPlaytime !== "" && game.playTimeMinutes > maxPlaytime) return false;
+
+      // 3. Player Count Range
+      const effectiveMinFilter = minPlayersFilter !== "" ? minPlayersFilter : maxPlayersFilter;
+      const effectiveMaxFilter = maxPlayersFilter !== "" ? maxPlayersFilter : minPlayersFilter;
+
+      if (effectiveMaxFilter !== "" && game.minPlayers > effectiveMaxFilter) return false;
+      if (effectiveMinFilter !== "" && game.maxPlayers !== null && game.maxPlayers < effectiveMinFilter) return false;
+
+      return true;
+    });
+  }, [allGames, searchQuery, minPlaytime, maxPlaytime, minPlayersFilter, maxPlayersFilter]);
   const [lockMap, setLockMap] = useState<Record<string, { sessionId: string; expiresAt: string }>>({});
   const [acquiringLock, setAcquiringLock] = useState(false);
   const socketRef = useRef<Socket | null>(null);
@@ -248,68 +283,213 @@ export default function GamesPage() {
           plain-text guides, or dynamic game graph intelligence.
         </p>
 
-        {/* Catalog Grid */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 24 }}>
-          {allGames.map((game, idx) => (
-            <article
-              key={`${game.id}-${idx}`}
-              onClick={() => setSelectedGame(game)}
+        {/* Minimalist Search and Filters Control Center */}
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 16,
+            alignItems: "center",
+            marginBottom: 28,
+            background: "transparent",
+          }}
+        >
+          {/* Minimalist Search Input */}
+          <div style={{ position: "relative", flex: "1 1 300px" }}>
+            <input
+              type="text"
+              placeholder="Search by title, rules, or tags..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
               style={{
-                background: theme.colors.surfaceRaised,
-                borderRadius: theme.radii.lg,
-                border: `1.5px solid ${selectedGame?.id === game.id ? theme.colors.accent : theme.colors.border}`,
-                padding: 28,
-                boxShadow: selectedGame?.id === game.id ? "0 18px 48px rgba(177, 122, 75, 0.15)" : theme.shadow,
+                width: "100%",
+                padding: "10px 14px",
+                borderRadius: 10,
+                border: `1.5px solid ${theme.colors.border}`,
+                background: "#ffffff",
+                fontSize: 13.5,
+                color: theme.colors.text,
+                outline: "none",
+                boxSizing: "border-box",
+                fontFamily: "Inter, sans-serif",
+              }}
+            />
+          </div>
+
+          {/* Minimalist Playtime Range */}
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ display: "inline-block", width: 68, fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, color: theme.colors.muted }}>
+              Time:
+            </span>
+            <input
+              type="number"
+              placeholder="Min"
+              value={minPlaytime}
+              onChange={(e) => setMinPlaytime(e.target.value === "" ? "" : parseInt(e.target.value))}
+              style={{
+                width: 60,
+                padding: "8px 10px",
+                borderRadius: 8,
+                border: `1.5px solid ${theme.colors.border}`,
+                background: "#ffffff",
+                fontSize: 12.5,
+                outline: "none",
+                textAlign: "center",
+              }}
+            />
+            <span style={{ color: theme.colors.muted, fontSize: 12 }}>–</span>
+            <input
+              type="number"
+              placeholder="Max"
+              value={maxPlaytime}
+              onChange={(e) => setMaxPlaytime(e.target.value === "" ? "" : parseInt(e.target.value))}
+              style={{
+                width: 60,
+                padding: "8px 10px",
+                borderRadius: 8,
+                border: `1.5px solid ${theme.colors.border}`,
+                background: "#ffffff",
+                fontSize: 12.5,
+                outline: "none",
+                textAlign: "center",
+              }}
+            />
+          </div>
+
+          {/* Minimalist Players Range */}
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ display: "inline-block", width: 68, fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, color: theme.colors.muted }}>
+              Players:
+            </span>
+            <input
+              type="number"
+              placeholder="Min"
+              value={minPlayersFilter}
+              onChange={(e) => setMinPlayersFilter(e.target.value === "" ? "" : parseInt(e.target.value))}
+              style={{
+                width: 60,
+                padding: "8px 10px",
+                borderRadius: 8,
+                border: `1.5px solid ${theme.colors.border}`,
+                background: "#ffffff",
+                fontSize: 12.5,
+                outline: "none",
+                textAlign: "center",
+              }}
+            />
+            <span style={{ color: theme.colors.muted, fontSize: 12 }}>–</span>
+            <input
+              type="number"
+              placeholder="Max"
+              value={maxPlayersFilter}
+              onChange={(e) => setMaxPlayersFilter(e.target.value === "" ? "" : parseInt(e.target.value))}
+              style={{
+                width: 60,
+                padding: "8px 10px",
+                borderRadius: 8,
+                border: `1.5px solid ${theme.colors.border}`,
+                background: "#ffffff",
+                fontSize: 12.5,
+                outline: "none",
+                textAlign: "center",
+              }}
+            />
+          </div>
+
+          {/* Minimalist Clear Button */}
+          {(searchQuery || minPlaytime || maxPlaytime || minPlayersFilter || maxPlayersFilter) && (
+            <button
+              onClick={() => {
+                setSearchQuery("");
+                setMinPlaytime("");
+                setMaxPlaytime("");
+                setMinPlayersFilter("");
+                setMaxPlayersFilter("");
+              }}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: theme.colors.accent,
+                fontWeight: 600,
+                fontSize: 12.5,
                 cursor: "pointer",
-                transition: "transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease",
-                transform: selectedGame?.id === game.id ? "translateY(-4px)" : "none",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = "translateY(-4px)";
-                e.currentTarget.style.boxShadow = "0 20px 48px rgba(35, 27, 21, 0.12)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = selectedGame?.id === game.id ? "translateY(-4px)" : "none";
-                e.currentTarget.style.boxShadow = selectedGame?.id === game.id ? "0 18px 48px rgba(177, 122, 75, 0.15)" : theme.shadow;
+                padding: "8px 0",
               }}
             >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", gap: 8 }}>
-                <span style={{ color: theme.colors.accent, textTransform: "uppercase", letterSpacing: 2, fontSize: 10, fontWeight: 700 }}>
-                  {game.isTextBased ? "Catalog Text" : "Rule Flow Graph"}
-                </span>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <LockBadge game={game} />
-                  <span style={{ fontSize: 12, color: theme.colors.muted, background: "rgba(214, 176, 138, 0.12)", padding: "2px 8px", borderRadius: 999 }}>
-                    {game.id.startsWith("custom") ? "Custom" : "Official"}
-                  </span>
-                </div>
-              </div>
-              <h2 style={{ fontSize: 26, margin: "12px 0 8px", fontWeight: 800 }}>{game.title}</h2>
-              <p style={{ color: theme.colors.muted, fontSize: 14, lineHeight: 1.6, margin: "0 0 20px" }}>{game.summary}</p>
-
-              <dl style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12, borderTop: `1px solid ${theme.colors.border}`, paddingTop: 16 }}>
-                <div>
-                  <dt style={{ color: theme.colors.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>Players</dt>
-                  <dd style={{ margin: "4px 0 0", fontSize: 14, fontWeight: 600 }}>
-                    {game.maxPlayers ? `${game.minPlayers}–${game.maxPlayers}` : `${game.minPlayers}+`}
-                  </dd>
-                </div>
-                <div>
-                  <dt style={{ color: theme.colors.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>Time</dt>
-                  <dd style={{ margin: "4px 0 0", fontSize: 14, fontWeight: 600 }}>{game.playTimeMinutes} min</dd>
-                </div>
-                <div>
-                  <dt style={{ color: theme.colors.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>Decks</dt>
-                  <dd style={{ margin: "4px 0 0", fontSize: 14, fontWeight: 600 }}>{game.deckCount}</dd>
-                </div>
-                <div>
-                  <dt style={{ color: theme.colors.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>Scorekeeping</dt>
-                  <dd style={{ margin: "4px 0 0", fontSize: 14, fontWeight: 600 }}>{game.needsPaperScorekeeping ? "Paper" : "None"}</dd>
-                </div>
-              </dl>
-            </article>
-          ))}
+              Clear
+            </button>
+          )}
         </div>
+
+        {/* Catalog Grid */}
+        {filteredGames.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "48px 24px", background: "#ffffff", border: `1.5px solid ${theme.colors.border}`, borderRadius: theme.radii.lg }}>
+            <h3 style={{ margin: "0 0 8px 0", fontSize: 18, fontWeight: 700 }}>No matching games found</h3>
+            <p style={{ color: theme.colors.muted, fontSize: 14, margin: 0 }}>Try clearing your search query or broadening your filters.</p>
+          </div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 24 }}>
+            {filteredGames.map((game, idx) => (
+              <article
+                key={`${game.id}-${idx}`}
+                onClick={() => setSelectedGame(game)}
+                style={{
+                  background: theme.colors.surfaceRaised,
+                  borderRadius: theme.radii.lg,
+                  border: `1.5px solid ${selectedGame?.id === game.id ? theme.colors.accent : theme.colors.border}`,
+                  padding: 28,
+                  boxShadow: selectedGame?.id === game.id ? "0 18px 48px rgba(177, 122, 75, 0.15)" : theme.shadow,
+                  cursor: "pointer",
+                  transition: "transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease",
+                  transform: selectedGame?.id === game.id ? "translateY(-4px)" : "none",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = "translateY(-4px)";
+                  e.currentTarget.style.boxShadow = "0 20px 48px rgba(35, 27, 21, 0.12)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = selectedGame?.id === game.id ? "translateY(-4px)" : "none";
+                  e.currentTarget.style.boxShadow = selectedGame?.id === game.id ? "0 18px 48px rgba(177, 122, 75, 0.15)" : theme.shadow;
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", gap: 8 }}>
+                  <span style={{ color: theme.colors.accent, textTransform: "uppercase", letterSpacing: 2, fontSize: 10, fontWeight: 700 }}>
+                    {game.isTextBased ? "Catalog Text" : "Rule Flow Graph"}
+                  </span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <LockBadge game={game} />
+                    <span style={{ fontSize: 12, color: theme.colors.muted, background: "rgba(214, 176, 138, 0.12)", padding: "2px 8px", borderRadius: 999 }}>
+                      {game.id.startsWith("custom") ? "Custom" : "Official"}
+                    </span>
+                  </div>
+                </div>
+                <h2 style={{ fontSize: 26, margin: "12px 0 8px", fontWeight: 800 }}>{game.title}</h2>
+                <p style={{ color: theme.colors.muted, fontSize: 14, lineHeight: 1.6, margin: "0 0 20px" }}>{game.summary}</p>
+
+                <dl style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12, borderTop: `1px solid ${theme.colors.border}`, paddingTop: 16 }}>
+                  <div>
+                    <dt style={{ color: theme.colors.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>Players</dt>
+                    <dd style={{ margin: "4px 0 0", fontSize: 14, fontWeight: 600 }}>
+                      {game.maxPlayers ? `${game.minPlayers}–${game.maxPlayers}` : `${game.minPlayers}+`}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt style={{ color: theme.colors.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>Time</dt>
+                    <dd style={{ margin: "4px 0 0", fontSize: 14, fontWeight: 600 }}>{game.playTimeMinutes} min</dd>
+                  </div>
+                  <div>
+                    <dt style={{ color: theme.colors.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>Decks</dt>
+                    <dd style={{ margin: "4px 0 0", fontSize: 14, fontWeight: 600 }}>{game.deckCount}</dd>
+                  </div>
+                  <div>
+                    <dt style={{ color: theme.colors.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>Scorekeeping</dt>
+                    <dd style={{ margin: "4px 0 0", fontSize: 14, fontWeight: 600 }}>{game.needsPaperScorekeeping ? "Paper" : "None"}</dd>
+                  </div>
+                </dl>
+              </article>
+            ))}
+          </div>
+        )}
 
         {/* Selected Game Detail Panel */}
         {selectedGame && (
