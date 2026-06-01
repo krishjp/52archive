@@ -2,6 +2,11 @@ import { judgementGame } from "@52archive/core";
 import { theme } from "@52archive/ui";
 import { GraphEditor } from "../components/graph-editor";
 
+export const metadata = {
+  title: "Rule Flow Editor - 52Archive",
+  description: "Build, edit, and visualize structured game rules dynamically using our canvas editor.",
+};
+
 export default function EditorPage() {
   return (
     <main

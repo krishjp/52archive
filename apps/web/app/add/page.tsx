@@ -1,8 +1,14 @@
 import { sampleGames } from "@52archive/core";
 import { theme } from "@52archive/ui";
 
-const graphNodes = sampleGames[0].graph.nodes;
-const graphEdges = sampleGames[0].graph.edges;
+export const metadata = {
+  title: "Add a New Game - 52Archive",
+  description: "Create and draft branching rules for new card games to add to the 52Archive catalog.",
+};
+
+const gameWithGraph = sampleGames.find((g) => g.graph && g.graph.nodes);
+const graphNodes = gameWithGraph?.graph?.nodes || [];
+const graphEdges = gameWithGraph?.graph?.edges || [];
 
 export default function AddGamePage() {
   return (
@@ -16,6 +22,27 @@ export default function AddGamePage() {
       }}
     >
       <section style={{ maxWidth: 1280, margin: "0 auto" }}>
+        <a
+          href="/"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "10px 18px",
+            borderRadius: 999,
+            background: "#ffffff",
+            border: `1px solid ${theme.colors.border}`,
+            color: theme.colors.text,
+            textDecoration: "none",
+            fontWeight: 600,
+            fontSize: 14,
+            marginBottom: 20,
+            cursor: "pointer",
+            boxShadow: "0 2px 8px rgba(35, 27, 21, 0.04)",
+          }}
+        >
+          ← Back to Home
+        </a>
         <h1 style={{ fontSize: "clamp(2.5rem, 6vw, 4.5rem)", marginBottom: 10 }}>Add a game</h1>
         <p style={{ maxWidth: 720, color: theme.colors.muted }}>
           Draft rules as a branching graph so authors can describe setup, turns, scoring, variants, and

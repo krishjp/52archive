@@ -1,0 +1,76 @@
+schemaVersion: "1.0.0"
+id: "judgement-yaml"
+title: "Judgement (CLI Seeded)"
+subtitle: "Trick-taking bidding game imported via Admin CLI"
+summary: "A pure compute-supported implementation of Judgement seeded directly via the docker/CLI pipeline."
+minPlayers: 3
+maxPlayers: 7
+playTimeMinutes: 45
+difficulty: "moderate"
+tags: ["classic", "strategy", "bidding"]
+deckCount: 1
+needsPaperScorekeeping: true
+mechanics:
+  type: "trick_taking"
+  followSuit: true
+  hasTrump: true
+  trumpSelection: "round_rotation"
+  trickResolution: "highest_rank_lead_or_trump"
+  scoringType: "bid_matching"
+rules:
+
+  rewardWeights:
+    terminal_win: 150
+    terminal_loss: -150
+    trick_won: 15
+    penalty_card_taken: -10
+
+graph:
+  nodes:
+    - id: "setup"
+      kind: "setup"
+      title: "Set up the deck"
+      body: "Shuffle one standard deck and initialize starting score sheet."
+      x: 0
+      y: 0
+    - id: "deal"
+      kind: "turn"
+      title: "Deal Cards"
+      body: "Deal hands to players based on the current round number."
+      x: 300
+      y: 0
+    - id: "bid"
+      kind: "decision"
+      title: "Bid Tricks"
+      body: "Each player declares how many tricks they aim to win."
+      x: 600
+      y: 0
+    - id: "play"
+      kind: "turn"
+      title: "Trick Play"
+      body: "Standard trick-taking play; highest card of lead suit or trump wins."
+      x: 900
+      y: 0
+    - id: "scoring"
+      kind: "score"
+      title: "Assess Scores"
+      body: "Compare actual tricks won to player bids and adjust scores."
+      x: 1200
+      y: 0
+  edges:
+    - id: "e-setup-deal"
+      from: "setup"
+      to: "deal"
+      label: "start"
+    - id: "e-deal-bid"
+      from: "deal"
+      to: "bid"
+      label: "cards-dealt"
+    - id: "e-bid-play"
+      from: "bid"
+      to: "play"
+      label: "bids-locked"
+    - id: "e-play-scoring"
+      from: "play"
+      to: "scoring"
+      label: "tricks-done"

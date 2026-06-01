@@ -1,0 +1,87 @@
+schema_version: "1.0.0"
+description: "Generalized Graph-Based Core Framework for Card Game Definitions and AI Training"
+
+# Core Graph Components
+graph_architecture:
+  node_definition:
+    type: "Game_State"
+    description: "A comprehensive snapshot of the entire game environment at a specific logical moment."
+    attributes:
+      game_phase:
+        type: "string"
+        allowed_values: ["setup", "deal", "betting", "draw", "play_action", "meld", "scoring", "terminal"]
+      active_player_id: "string"
+      zones:
+        description: "Physical or logical locations tracking exact card distributions."
+        player_hands: "map[player_id]list(card_id)"
+        stock_deck: "list(card_id)"
+        discard_pile: "list(card_id)"
+        table_state: 
+          description: "Active trick, community cards, or active melds."
+          type: "list(card_id)"
+      visibility_matrix:
+        description: "Defines Imperfect Information. Maps player visibility to cards."
+        type: "matrix[player_id][card_id]"
+        values: ["VISIBLE", "HIDDEN_OWNED_BY_SELF", "HIDDEN_OWNED_BY_OPPONENT", "HIDDEN_IN_DECK"]
+
+  edge_definition:
+    type: "Game_Transition"
+    description: "An action or event moving the game from Node N to Node N+1."
+    attributes:
+      action_type:
+        type: "string"
+        allowed_values: ["deal_card", "play_card", "draw_card", "discard_card", "meld_cards", "bet", "fold", "pass"]
+      player_id: "string"
+      payload: "map(string, string)" # e.g., card played, chips betted
+      transition_type:
+        type: "string"
+        enum: ["deterministic", "stochastic"]
+      probability: 
+        type: "float"
+        description: "Defaults to 1.0 for deterministic moves. Calculated dynamically for stochastic chance nodes."
+
+# Mapping Rules to Graph Operations
+game_mechanics_mapping:
+  rules_as_filters:
+    description: "How game-specific rules constrain the generation of valid outbound edges from a node."
+    examples:
+      follow_suit:
+        logic: "If table_state.lead_suit exists AND player_hands[active_id] contains lead_suit, filter outgoing edges to ONLY actions playing lead_suit."
+      rank_comparison:
+        logic: "Evaluate table_state terminal nodes to resolve trick ownership and assign node score weights."
+      set_accumulation:
+        logic: "Validate if sub-graph within player_hands fits sequence/set patterns to trigger a meld edge."
+
+# AI Capability and Traversal Specifications
+ai_engine_configuration:
+  graph_type_by_information_density:
+    perfect_information:
+      games: ["Solitaire", "Open-hand variants"]
+      recommended_algorithms: ["Minimax", "Alpha-Beta Pruning", "A* Search"]
+      graph_nature: "Deterministic Directed Acyclic Graph (DAG)"
+    imperfect_information:
+      games: ["Poker", "Hearts", "Spades", "Rummy", "Blackjack"]
+      recommended_algorithms: ["Counterfactual Regret Minimization (CFR)", "Monte Carlo Tree Search (MCTS)", "Expectiminimax"]
+      graph_nature: "Stochastic Game Tree with Information Sets"
+  
+  optimization_directives:
+    state_explosion_mitigation:
+      - "Do not pre-compute the full graph. Generate outbound edges dynamically on-the-fly."
+      - "Implement abstract state representations (e.g., treat all suit variations identically if they hold no mathematical difference in scoring)."
+    reward_system:
+      node_weights:
+        terminal_win: 100
+        terminal_loss: -100
+        trick_won: 10
+        penalty_card_taken: -5
+
+# Example Instantiation Rules for Specific Genres
+genre_templates:
+  trick_taking:
+    graph_looping: false
+    structural_cycles: "Forbidden (Hand sizes strictly decrement)"
+    terminal_condition: "All player_hands are empty"
+  accumulating_rummy:
+    graph_looping: true
+    structural_cycles: "Allowed (Deck reshuffles create cyclic paths back to identical card states)"
+    terminal_condition: "At least one player_hand count equals 0 AND meld criteria met"

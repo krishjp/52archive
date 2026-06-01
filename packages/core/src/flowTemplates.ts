@@ -100,12 +100,13 @@ export function createFlowNode(template: FlowTemplateKey, index: number, x: numb
   };
 
   return {
-    id: `${template}-${index}-${Math.random().toString(36).slice(2, 7)}`,
+    id: `${template}-${index}`,
     x,
     y,
     ...copy[template],
   };
 }
+
 
 export function buildStarterFlow(includeTeams: boolean): RuleGraph {
   const setup = createFlowNode("setup", 0, 0, 0);

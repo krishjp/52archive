@@ -6,9 +6,11 @@
   "dependencies": {
     "@52archive/core": "file:../../packages/core",
     "@52archive/ui": "file:../../packages/ui",
+    "@xyflow/react": "^12.11.0",
     "next": "^15.1.4",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "sonner": "^2.0.7"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

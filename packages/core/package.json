@@ -6,11 +6,19 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "dependencies": {
+    "pg": "^8.21.0",
+    "yaml": "^2.9.0",
     "zod": "^3.24.1"
   },
   "scripts": {
     "check": "tsc -p tsconfig.json --noEmit",
     "lint": "echo 'lint core'",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "db:push-yaml": "tsx src/bin/push-yaml.ts",
+    "db:clear": "tsx src/bin/clear-db.ts"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.20.0",
+    "tsx": "^4.22.4"
   }
 }

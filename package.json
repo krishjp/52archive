@@ -9,13 +9,20 @@
   ],
   "scripts": {
     "dev:web": "npm run dev --workspace=web",
+    "dev:clean": "node -e \"const fs = require('fs'); fs.rmSync('apps/web/.next', { recursive: true, force: true });\" && npm run dev:web",
     "dev:ios": "npm run start --workspace=mobile",
     "check": "npm run check --workspaces",
     "lint": "npm run lint --workspaces",
-    "typecheck": "npm run typecheck --workspaces"
+    "typecheck": "npm run typecheck --workspaces",
+    "db:push-yaml": "npm run db:push-yaml --workspace=packages/core",
+    "db:clear": "npm run db:clear --workspace=packages/core"
   },
   "devDependencies": {
     "playwright": "^1.60.0",
     "typescript": "^5.6.3"
+  },
+  "dependencies": {
+    "react": "19.2.6",
+    "react-dom": "19.2.6"
   }
 }
