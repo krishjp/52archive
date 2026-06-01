@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Build output
+dist/
+build/
+.next/
+out/
+*/dist/
+*/build/
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+
+# IDE & editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs & coverage
+*.log
+logs/
+coverage/
+
+# Runtime
+.turbo/
+.pnpm-lock.yaml

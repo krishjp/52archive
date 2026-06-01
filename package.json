@@ -1,0 +1,21 @@
+{
+  "name": "52archive",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@9.12.3",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev --workspace=web",
+    "dev:ios": "npm run start --workspace=mobile",
+    "check": "npm run check --workspaces",
+    "lint": "npm run lint --workspaces",
+    "typecheck": "npm run typecheck --workspaces"
+  },
+  "devDependencies": {
+    "playwright": "^1.60.0",
+    "typescript": "^5.6.3"
+  }
+}

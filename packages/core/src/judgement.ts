@@ -1,0 +1,96 @@
+import type { Game, RuleGraph } from "./types";
+
+const judgementGraph = {
+  nodes: [
+    {
+      id: "setup",
+      kind: "setup",
+      title: "Set the table",
+      body: "Use one standard deck. Choose a dealer, write each player's starting score on paper, and decide how many rounds you will play.",
+      x: 0,
+      y: 0,
+    },
+    {
+      id: "deal",
+      kind: "turn",
+      title: "Deal for the round",
+      body: "The dealer gives each player a hand equal to the current round number. In round one, deal one card each; in round ten, deal ten cards each.",
+      x: 360,
+      y: 0,
+    },
+    {
+      id: "bid",
+      kind: "decision",
+      title: "Make a bid",
+      body: "Each player predicts how many tricks they will win. This creates the main branching tension of the game.",
+      x: 720,
+      y: 0,
+    },
+    {
+      id: "play",
+      kind: "turn",
+      title: "Play tricks",
+      body: "Players follow suit when possible and the highest card of the led suit wins the trick.",
+      x: 1080,
+      y: 0,
+    },
+    {
+      id: "score",
+      kind: "score",
+      title: "Score the round",
+      body: "Match your bid to your tricks for points. Miss your bid and take a penalty. Record everything on paper.",
+      x: 1440,
+      y: 80,
+    },
+    {
+      id: "next-round",
+      kind: "variant",
+      title: "Advance or reverse",
+      body: "After the peak round, decrease the number of cards dealt each hand until the final round is complete.",
+      x: 720,
+      y: 220,
+    },
+    {
+      id: "win",
+      kind: "game-end",
+      title: "Highest score wins",
+      body: "After all rounds, the player with the best total score wins the session.",
+      x: 1080,
+      y: 220,
+    },
+    {
+      id: "rule-note",
+      kind: "note",
+      title: "Alias note",
+      body: "Also known as Kachufool or Oh Hell in some regions and circles.",
+      x: 0,
+      y: 220,
+    },
+  ],
+  edges: [
+    { id: "e1", from: "setup", to: "deal", label: "start" },
+    { id: "e2", from: "deal", to: "bid", label: "cards dealt" },
+    { id: "e3", from: "bid", to: "play", label: "all bids locked" },
+    { id: "e4", from: "play", to: "score", label: "tricks complete" },
+    { id: "e5", from: "score", to: "next-round", label: "continue" },
+    { id: "e6", from: "next-round", to: "deal", label: "next hand" },
+    { id: "e7", from: "score", to: "win", label: "final round ends" },
+  ],
+} satisfies RuleGraph;
+
+export const judgementGame: Game = {
+  id: "judgement",
+  title: "Judgement",
+  subtitle: "Also known as Kachufool or Oh Hell.",
+  summary:
+    "A classic trick-taking game where players bid the number of tricks they expect to win, then score based on accuracy.",
+  minPlayers: 3,
+  maxPlayers: 7,
+  playTimeMinutes: 35,
+  difficulty: "moderate",
+  tags: ["classic", "strategy", "party"],
+  needsPaperScorekeeping: true,
+  deckCount: 1,
+  graph: judgementGraph,
+  featured: true,
+};

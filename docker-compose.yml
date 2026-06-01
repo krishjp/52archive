@@ -1,0 +1,17 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: 52archive-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: 52archive
+      POSTGRES_USER: 52archive
+      POSTGRES_PASSWORD: 52archive
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+
+volumes:
+  db_data:
