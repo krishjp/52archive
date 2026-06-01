@@ -4,7 +4,7 @@ create table if not exists games (
   subtitle text not null,
   summary text not null,
   min_players integer not null,
-  max_players integer not null,
+  max_players integer,
   play_time_minutes integer not null,
   difficulty text not null,
   tags text[] not null default '{}',

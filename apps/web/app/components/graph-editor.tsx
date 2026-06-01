@@ -25,6 +25,15 @@ import { theme } from "@52archive/ui";
 import { toast } from "sonner";
 import CozyRuleNode from "./cozy-rule-node";
 
+const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+
+function getSessionId(): string {
+  if (typeof window === "undefined") return "";
+  let id = localStorage.getItem("52archive_session_id");
+  if (!id) { id = crypto.randomUUID(); localStorage.setItem("52archive_session_id", id); }
+  return id;
+}
+
 type EditorGame = Pick<
   Game,
   | "title"
@@ -73,9 +82,9 @@ export function GraphEditor({ game }: { game: EditorGame }) {
   const [gameTitle, setGameTitle] = useState(game.title);
   const [gameSubtitle, setGameSubtitle] = useState(game.subtitle || "");
   const [gameSummary, setGameSummary] = useState(game.summary);
-  const [minPlayers, setMinPlayers] = useState(game.minPlayers);
-  const [maxPlayers, setMaxPlayers] = useState(game.maxPlayers);
-  const [playTime, setPlayTime] = useState(game.playTimeMinutes);
+  const [minPlayers, setMinPlayers] = useState<number | "">(game.minPlayers);
+  const [maxPlayers, setMaxPlayers] = useState<number | "">(game.maxPlayers ?? "");
+  const [playTime, setPlayTime] = useState<number | "">(game.playTimeMinutes);
   const [needsScore, setNeedsScore] = useState(game.needsPaperScorekeeping);
   const [textRules, setTextRules] = useState(
     `### Setup\nShuffle one standard deck and initialize starting score sheet.\n\n### Dealing & Loops\nEach player is dealt cards equal to the current round number. In Round 1, deal 1 card each; in Round 10, deal 10 cards each. The game loops clockwise, increasing card count each round up to the peak (10), then decreasing back down to 1.\n\n### Round Master Suit (Trump Suit)\nAt the start of each round, a new Round Master Suit is determined. The trump suit rotates each round through Hearts (♥), Diamonds (♦), Clubs (♣), Spades (♠), and No-Trumps (NT).\n\n### Bidding\nEach player declares exactly how many tricks they aim to win in the round.\n\n### Trick Play & Evaluation\nStandard trick-taking play; players must follow the led suit if possible. Highest card of lead suit or active Trump suit wins the trick and resolves trick ownership.\n\n### Scoring\nCompare actual tricks won to player bids. Match your bid exactly to score 10 points + 1 point per trick won. Otherwise, score 0 points.`
@@ -110,57 +119,49 @@ export function GraphEditor({ game }: { game: EditorGame }) {
     const gameId = params.get("id");
     if (!gameId) return;
 
-    let loadedGame: any = null;
-
-    if (gameId.startsWith("custom")) {
-      const existing = localStorage.getItem("52archive_custom_games");
-      const games = existing ? JSON.parse(existing) : [];
-      loadedGame = games.find((g: any) => g.id === gameId);
-    } else if (gameId === "judgement") {
-      loadedGame = game;
-    }
-
-    if (loadedGame) {
-      setActiveGameId(loadedGame.id);
-      setGameTitle(loadedGame.title);
-      setGameSubtitle(loadedGame.subtitle || "");
-      setGameSummary(loadedGame.summary);
-      setMinPlayers(loadedGame.minPlayers);
-      setMaxPlayers(loadedGame.maxPlayers);
-      setPlayTime(loadedGame.playTimeMinutes);
-      setNeedsScore(loadedGame.needsPaperScorekeeping);
-      setIsTextBased(!!loadedGame.isTextBased);
-      if (loadedGame.textRules) {
-        setTextRules(loadedGame.textRules);
-      }
-      if (loadedGame.graph && loadedGame.graph.nodes) {
-        setGraph({
-          nodes: loadedGame.graph.nodes,
-          edges: loadedGame.graph.edges || [],
-        });
-        setNodes(
-          loadedGame.graph.nodes.map((node: any) => ({
-            id: node.id,
-            type: "cozyRule",
-            position: { x: node.x, y: node.y },
-            data: { ...node },
-          }))
-        );
-        setEdges(
-          (loadedGame.graph.edges || []).map((edge: any) => ({
-            id: edge.id,
-            source: edge.from,
-            target: edge.to,
-            label: edge.label,
-            animated: edge.branchType === "conditional",
-            style: { stroke: theme.colors.accent, strokeWidth: 2 },
-          }))
-        );
-      }
-      toast.info(`Editing loaded rules for "${loadedGame.title}".`);
-    }
+    fetch(`${API}/api/games/${gameId}`)
+      .then((r) => r.json())
+      .then((loadedGame: any) => {
+        if (loadedGame.error) {
+          toast.error("Game not found", { description: loadedGame.error });
+          return;
+        }
+        setActiveGameId(loadedGame.id);
+        setGameTitle(loadedGame.title);
+        setGameSubtitle(loadedGame.subtitle || "");
+        setGameSummary(loadedGame.summary);
+        setMinPlayers(loadedGame.minPlayers);
+        setMaxPlayers(loadedGame.maxPlayers ?? "");
+        setPlayTime(loadedGame.playTimeMinutes);
+        setNeedsScore(loadedGame.needsPaperScorekeeping);
+        setIsTextBased(!!loadedGame.isTextBased);
+        if (loadedGame.textRules) setTextRules(loadedGame.textRules);
+        if (loadedGame.graph?.nodes?.length) {
+          setGraph({ nodes: loadedGame.graph.nodes, edges: loadedGame.graph.edges || [] });
+          setNodes(
+            loadedGame.graph.nodes.map((node: any) => ({
+              id: node.id, type: "cozyRule",
+              position: { x: node.x, y: node.y },
+              data: { ...node },
+            }))
+          );
+          setEdges(
+            (loadedGame.graph.edges || []).map((edge: any) => ({
+              id: edge.id, source: edge.from, target: edge.to,
+              label: edge.label,
+              animated: edge.branchType === "conditional",
+              style: { stroke: theme.colors.accent, strokeWidth: 2 },
+            }))
+          );
+        }
+        // Store version for optimistic lock check on save
+        setGameVersion(loadedGame.version ?? 1);
+        toast.info(`Loaded "${loadedGame.title}" — lock is held. Save to release it.`);
+      })
+      .catch(() => toast.error("Failed to load game from server"));
   }, [mounted, game]);
 
+  const [gameVersion, setGameVersion] = useState(1);
   const [isDirty, setIsDirty] = useState(false);
   const defaultTextRules = `### Setup\nShuffle one standard deck and initialize starting score sheet.\n\n### Dealing & Loops\nEach player is dealt cards equal to the current round number. In Round 1, deal 1 card each; in Round 10, deal 10 cards each. The game loops clockwise, increasing card count each round up to the peak (10), then decreasing back down to 1.\n\n### Round Master Suit (Trump Suit)\nAt the start of each round, a new Round Master Suit is determined. The trump suit rotates each round through Hearts (♥), Diamonds (♦), Clubs (♣), Spades (♠), and No-Trumps (NT).\n\n### Bidding\nEach player declares exactly how many tricks they aim to win in the round.\n\n### Trick Play & Evaluation\nStandard trick-taking play; players must follow the led suit if possible. Highest card of lead suit or active Trump suit wins the trick and resolves trick ownership.\n\n### Scoring\nCompare actual tricks won to player bids. Match your bid exactly to score 10 points + 1 point per trick won. Otherwise, score 0 points.`;
 
@@ -169,9 +170,9 @@ export function GraphEditor({ game }: { game: EditorGame }) {
       gameTitle !== game.title ||
       gameSubtitle !== (game.subtitle || "") ||
       gameSummary !== game.summary ||
-      minPlayers !== game.minPlayers ||
-      maxPlayers !== game.maxPlayers ||
-      playTime !== game.playTimeMinutes ||
+      (minPlayers === "" ? null : minPlayers) !== (game.minPlayers ?? null) ||
+      (maxPlayers === "" ? null : maxPlayers) !== (game.maxPlayers ?? null) ||
+      (playTime === "" ? null : playTime) !== (game.playTimeMinutes ?? null) ||
       needsScore !== game.needsPaperScorekeeping;
 
     const hasTextRulesChanged = textRules !== defaultTextRules;
@@ -283,6 +284,37 @@ export function GraphEditor({ game }: { game: EditorGame }) {
           eds
         )
       );
+    },
+    [setEdges]
+  );
+
+  const onEdgeUpdate = useCallback(
+    (oldEdge: Edge, newConnection: Connection) => {
+      setEdges((els) =>
+        els.map((e) =>
+          e.id === oldEdge.id
+            ? {
+                ...e,
+                source: newConnection.source || e.source,
+                target: newConnection.target || e.target,
+                sourceHandle: newConnection.sourceHandle || e.sourceHandle,
+                targetHandle: newConnection.targetHandle || e.targetHandle,
+              }
+            : e
+        )
+      );
+      setGraph((current) => ({
+        ...current,
+        edges: current.edges.map((e) =>
+          e.id === oldEdge.id
+            ? {
+                ...e,
+                from: newConnection.source || e.from,
+                to: newConnection.target || e.to,
+              }
+            : e
+        ),
+      }));
     },
     [setEdges]
   );
@@ -683,44 +715,82 @@ export function GraphEditor({ game }: { game: EditorGame }) {
                   fontWeight: 700,
                   boxShadow: "0 4px 12px rgba(46, 125, 50, 0.25)",
                 }}
-                onClick={() => {
-                  setIsDirty(false);
-                  
-                  const newGameId = (activeGameId && activeGameId.startsWith("custom"))
-                    ? activeGameId
-                    : `custom-${gameTitle.toLowerCase().replace(/[^a-z0-9]/g, "-")}-${Date.now()}`;
-                  const newGame = {
-                    id: newGameId,
-                    title: gameTitle,
-                    subtitle: gameSubtitle,
-                    summary: gameSummary,
-                    minPlayers,
-                    maxPlayers,
-                    playTimeMinutes: playTime,
-                    difficulty: "moderate",
-                    needsPaperScorekeeping: needsScore,
-                    deckCount: 1,
-                    tags: ["custom", "graph-based"],
-                    isTextBased: false,
-                    graph: {
-                      nodes: graph.nodes,
-                      edges: graph.edges,
-                    },
-                  };
-
-                  const existing = localStorage.getItem("52archive_custom_games");
-                  const games = existing ? JSON.parse(existing) : [];
-                  const idx = games.findIndex((g: any) => g.id === newGame.id);
-                  if (idx >= 0) {
-                    games[idx] = { ...games[idx], ...newGame };
-                  } else {
-                    games.push(newGame);
+                onClick={async () => {
+                  if (!gameTitle.trim()) {
+                    toast.error("Validation error", { description: "Game Title is required." });
+                    return;
                   }
-                  localStorage.setItem("52archive_custom_games", JSON.stringify(games));
+                  if (minPlayers === "" || minPlayers <= 0) {
+                    toast.error("Validation error", { description: "Minimum Players must be at least 1." });
+                    return;
+                  }
+                  if (playTime === "" || playTime <= 0) {
+                    toast.error("Validation error", { description: "Playtime must be at least 1 minute." });
+                    return;
+                  }
+                  if (maxPlayers !== "" && Number(maxPlayers) < Number(minPlayers)) {
+                    toast.error("Validation error", { description: "Maximum Players cannot be less than Minimum Players." });
+                    return;
+                  }
 
-                  toast.success("Graph Game Saved!", {
-                    description: `Compiled rules for "${gameTitle}" with ${graph.nodes.length} nodes successfully saved to your catalog!`,
-                  });
+                  setIsDirty(false);
+                  const sessionId = getSessionId();
+                  const graphPayload = { nodes: graph.nodes, edges: graph.edges };
+                  const finalMinPlayers = Number(minPlayers);
+                  const finalMaxPlayers = maxPlayers === "" ? null : Number(maxPlayers);
+                  const finalPlayTime = Number(playTime);
+
+                  if (activeGameId) {
+                    // Existing game — PUT to update
+                    const res = await fetch(`${API}/api/games/${activeGameId}`, {
+                      method: "PUT",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        sessionId,
+                        version: gameVersion,
+                        graph: graphPayload,
+                        title: gameTitle,
+                        subtitle: gameSubtitle,
+                        summary: gameSummary,
+                        minPlayers: finalMinPlayers,
+                        maxPlayers: finalMaxPlayers,
+                        playTimeMinutes: finalPlayTime,
+                        needsPaperScorekeeping: needsScore,
+                      }),
+                    });
+                    const data = await res.json();
+                    if (!res.ok) {
+                      toast.error("Save failed", { description: data.error });
+                      return;
+                    }
+                    toast.success("Graph Game Saved!", {
+                      description: `"${gameTitle}" saved with ${graph.nodes.length} nodes. Lock released.`,
+                    });
+                  } else {
+                    // New game — POST to create
+                    const newId = `custom-${gameTitle.toLowerCase().replace(/[^a-z0-9]/g, "-")}-${Date.now()}`;
+                    const res = await fetch(`${API}/api/games`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        id: newId, title: gameTitle, subtitle: gameSubtitle, summary: gameSummary,
+                        minPlayers: finalMinPlayers, maxPlayers: finalMaxPlayers, playTimeMinutes: finalPlayTime,
+                        difficulty: "moderate", needsPaperScorekeeping: needsScore,
+                        deckCount: 1, tags: ["custom", "graph-based"], isTextBased: false,
+                        graph: graphPayload,
+                      }),
+                    });
+                    const data = await res.json();
+                    if (!res.ok) {
+                      toast.error("Create failed", { description: data.error });
+                      return;
+                    }
+                    toast.success("Graph Game Created!", {
+                      description: `"${gameTitle}" added to the catalog.`,
+                    });
+                  }
+                  // Return to catalog — lock is released server-side on PUT
+                  window.location.href = "/games";
                 }}
               >
                 Save Graph
@@ -792,13 +862,38 @@ export function GraphEditor({ game }: { game: EditorGame }) {
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
             <Field label="Min Players">
-              <input type="number" value={minPlayers} onChange={(e) => setMinPlayers(parseInt(e.target.value) || 2)} style={inputStyle()} />
+              <input
+                type="number"
+                value={minPlayers}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setMinPlayers(val === "" ? "" : parseInt(val));
+                }}
+                style={inputStyle()}
+              />
             </Field>
             <Field label="Max Players">
-              <input type="number" value={maxPlayers} onChange={(e) => setMaxPlayers(parseInt(e.target.value) || 6)} style={inputStyle()} />
+              <input
+                type="number"
+                value={maxPlayers}
+                placeholder="+"
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setMaxPlayers(val === "" ? "" : parseInt(val));
+                }}
+                style={inputStyle()}
+              />
             </Field>
             <Field label="Playtime (mins)">
-              <input type="number" value={playTime} onChange={(e) => setPlayTime(parseInt(e.target.value) || 30)} style={inputStyle()} />
+              <input
+                type="number"
+                value={playTime}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setPlayTime(val === "" ? "" : parseInt(val));
+                }}
+                style={inputStyle()}
+              />
             </Field>
           </div>
 
@@ -824,41 +919,81 @@ export function GraphEditor({ game }: { game: EditorGame }) {
                 cursor: "pointer",
                 boxShadow: "0 4px 14px rgba(159, 108, 63, 0.25)",
               }}
-              onClick={() => {
-                setIsDirty(false);
-                
-                const newGameId = (activeGameId && activeGameId.startsWith("custom"))
-                  ? activeGameId
-                  : `custom-${gameTitle.toLowerCase().replace(/[^a-z0-9]/g, "-")}-${Date.now()}`;
-                const newGame = {
-                  id: newGameId,
-                  title: gameTitle,
-                  subtitle: gameSubtitle,
-                  summary: gameSummary,
-                  minPlayers,
-                  maxPlayers,
-                  playTimeMinutes: playTime,
-                  difficulty: "moderate",
-                  needsPaperScorekeeping: needsScore,
-                  deckCount: 1,
-                  tags: ["custom", "text-based"],
-                  isTextBased: true,
-                  textRules: textRules,
-                };
-
-                const existing = localStorage.getItem("52archive_custom_games");
-                const games = existing ? JSON.parse(existing) : [];
-                const idx = games.findIndex((g: any) => g.id === newGame.id);
-                if (idx >= 0) {
-                  games[idx] = { ...games[idx], ...newGame };
-                } else {
-                  games.push(newGame);
+              onClick={async () => {
+                if (!gameTitle.trim()) {
+                  toast.error("Validation error", { description: "Game Title is required." });
+                  return;
                 }
-                localStorage.setItem("52archive_custom_games", JSON.stringify(games));
+                if (minPlayers === "" || minPlayers <= 0) {
+                  toast.error("Validation error", { description: "Minimum Players must be at least 1." });
+                  return;
+                }
+                if (playTime === "" || playTime <= 0) {
+                  toast.error("Validation error", { description: "Playtime must be at least 1 minute." });
+                  return;
+                }
+                if (maxPlayers !== "" && Number(maxPlayers) < Number(minPlayers)) {
+                  toast.error("Validation error", { description: "Maximum Players cannot be less than Minimum Players." });
+                  return;
+                }
 
-                toast.success("Text Game Saved!", {
-                  description: `Title: "${gameTitle}" (${textRules.length} characters) successfully saved to your catalog!`,
-                });
+                setIsDirty(false);
+                const sessionId = getSessionId();
+                const graphPayload = { nodes: [], edges: [], textRules };
+                const finalMinPlayers = Number(minPlayers);
+                const finalMaxPlayers = maxPlayers === "" ? null : Number(maxPlayers);
+                const finalPlayTime = Number(playTime);
+
+                if (activeGameId) {
+                  // Existing game — PUT to update
+                  const res = await fetch(`${API}/api/games/${activeGameId}`, {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      sessionId,
+                      version: gameVersion,
+                      graph: graphPayload,
+                      title: gameTitle,
+                      subtitle: gameSubtitle,
+                      summary: gameSummary,
+                      minPlayers: finalMinPlayers,
+                      maxPlayers: finalMaxPlayers,
+                      playTimeMinutes: finalPlayTime,
+                      needsPaperScorekeeping: needsScore,
+                    }),
+                  });
+                  const data = await res.json();
+                  if (!res.ok) {
+                    toast.error("Save failed", { description: data.error });
+                    return;
+                  }
+                  toast.success("Text Game Saved!", {
+                    description: `"${gameTitle}" saved. Lock released.`,
+                  });
+                } else {
+                  // New game — POST to create
+                  const newId = `custom-${gameTitle.toLowerCase().replace(/[^a-z0-9]/g, "-")}-${Date.now()}`;
+                  const res = await fetch(`${API}/api/games`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      id: newId, title: gameTitle, subtitle: gameSubtitle, summary: gameSummary,
+                      minPlayers: finalMinPlayers, maxPlayers: finalMaxPlayers, playTimeMinutes: finalPlayTime,
+                      difficulty: "moderate", needsPaperScorekeeping: needsScore,
+                      deckCount: 1, tags: ["custom", "text-based"], isTextBased: true,
+                      textRules,
+                    }),
+                  });
+                  const data = await res.json();
+                  if (!res.ok) {
+                    toast.error("Create failed", { description: data.error });
+                    return;
+                  }
+                  toast.success("Text Game Created!", {
+                    description: `"${gameTitle}" added to the catalog.`,
+                  });
+                }
+                window.location.href = "/games";
               }}
             >
               Save Text Game Definition
@@ -903,7 +1038,10 @@ export function GraphEditor({ game }: { game: EditorGame }) {
                     <input
                       type="number"
                       value={minPlayers}
-                      onChange={(e) => setMinPlayers(parseInt(e.target.value) || 2)}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setMinPlayers(val === "" ? "" : parseInt(val));
+                      }}
                       style={{ ...inputStyle(), padding: "8px 10px", borderRadius: 10, fontSize: 13 }}
                     />
                   </Field>
@@ -911,7 +1049,11 @@ export function GraphEditor({ game }: { game: EditorGame }) {
                     <input
                       type="number"
                       value={maxPlayers}
-                      onChange={(e) => setMaxPlayers(parseInt(e.target.value) || 6)}
+                      placeholder="+"
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setMaxPlayers(val === "" ? "" : parseInt(val));
+                      }}
                       style={{ ...inputStyle(), padding: "8px 10px", borderRadius: 10, fontSize: 13 }}
                     />
                   </Field>
@@ -920,7 +1062,10 @@ export function GraphEditor({ game }: { game: EditorGame }) {
                   <input
                     type="number"
                     value={playTime}
-                    onChange={(e) => setPlayTime(parseInt(e.target.value) || 30)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setPlayTime(val === "" ? "" : parseInt(val));
+                    }}
                     style={{ ...inputStyle(), padding: "8px 10px", borderRadius: 10, fontSize: 13 }}
                   />
                 </Field>
@@ -979,7 +1124,7 @@ export function GraphEditor({ game }: { game: EditorGame }) {
           </aside>
 
           {/* React Flow Core Interactive Canvas */}
-          <div
+<div
             style={{
               position: "relative",
               minHeight: 720,
@@ -987,21 +1132,39 @@ export function GraphEditor({ game }: { game: EditorGame }) {
                 "radial-gradient(circle at 50% 20%, rgba(214, 176, 138, 0.05), transparent 26%), linear-gradient(180deg, rgba(255,255,255,0.2), rgba(244,234,220,0.4))",
             }}
           >
-            <ReactFlow
-              nodes={nodes}
-              edges={edges}
-              onNodesChange={handleNodesChange}
-              onEdgesChange={handleEdgesChange}
-              onConnect={onConnect}
-              nodeTypes={nodeTypes}
-              onNodeClick={(_event: any, node: Node) => setSelectedId(node.id)}
-              fitView
-              style={{ width: "100%", height: "100%" }}
-            >
-              <Controls style={{ left: 16, bottom: 16 }} />
-              <MiniMap zoomable pannable style={{ background: "#fcfaf7", borderRadius: 12, border: `1px solid ${theme.colors.border}` }} />
-              <Background color="#b17a4b" gap={20} size={1} style={{ opacity: 0.08 }} />
-            </ReactFlow>
+            {(() => {
+              const styledEdges = edges.map((edge) => {
+                const srcNode = nodes.find((n) => n.id === edge.source);
+                const isSourceBranch = srcNode?.data?.kind === "decision";
+                return {
+                  ...edge,
+                  style: {
+                    stroke: theme.colors.accent,
+                    strokeWidth: 2,
+                    strokeDasharray: isSourceBranch ? "5,5" : undefined,
+                  },
+                };
+              });
+
+              return (
+                <ReactFlow
+                  nodes={nodes}
+                  edges={styledEdges}
+                  onNodesChange={handleNodesChange}
+                  onEdgesChange={handleEdgesChange}
+                  onConnect={onConnect}
+                  onEdgeUpdate={onEdgeUpdate}
+                  nodeTypes={nodeTypes}
+                  onNodeClick={(_event: any, node: Node) => setSelectedId(node.id)}
+                  fitView
+                  style={{ width: "100%", height: "100%" }}
+                >
+                  <Controls style={{ left: 16, bottom: 16 }} />
+                  <MiniMap zoomable pannable style={{ background: "#fcfaf7", borderRadius: 12, border: `1px solid ${theme.colors.border}` }} />
+                  <Background color="#b17a4b" gap={20} size={1} style={{ opacity: 0.08 }} />
+                </ReactFlow>
+              );
+            })()}
           </div>
 
           {/* Right Properties Panel */}

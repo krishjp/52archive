@@ -46,16 +46,29 @@ export default function CozyRuleNode({ data, selected }: NodeProps<any>) {
         textAlign: "left",
       }}
     >
-      {/* Target Handle at top of the card node */}
+      {/* Target Handles snapping to Top and Left */}
       <Handle
         type="target"
         position={Position.Top}
+        id="top"
         style={{
           background: style.accent,
           width: 10,
           height: 10,
           border: "2px solid #ffffff",
           top: -5,
+        }}
+      />
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="left"
+        style={{
+          background: style.accent,
+          width: 10,
+          height: 10,
+          border: "2px solid #ffffff",
+          left: -5,
         }}
       />
 
@@ -127,16 +140,29 @@ export default function CozyRuleNode({ data, selected }: NodeProps<any>) {
         </div>
       )}
 
-      {/* Source Handle at bottom of the card node */}
+      {/* Source Handles snapping to Bottom and Right */}
       <Handle
         type="source"
         position={Position.Bottom}
+        id="bottom"
         style={{
           background: style.accent,
           width: 10,
           height: 10,
           border: "2px solid #ffffff",
           bottom: -5,
+        }}
+      />
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="right"
+        style={{
+          background: style.accent,
+          width: 10,
+          height: 10,
+          border: "2px solid #ffffff",
+          right: -5,
         }}
       />
     </div>

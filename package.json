@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "dev:web": "npm run dev --workspace=web",
+    "dev:server": "npm run dev --workspace=@52archive/server",
     "dev:clean": "node -e \"const fs = require('fs'); fs.rmSync('apps/web/.next', { recursive: true, force: true });\" && npm run dev:web",
     "dev:ios": "npm run start --workspace=mobile",
     "check": "npm run check --workspaces",

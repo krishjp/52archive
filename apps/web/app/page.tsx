@@ -7,7 +7,7 @@ export default function HomePage() {
   return (
     <main
       style={{
-        minHeight: "100vh",
+        minHeight: "auto",
         background:
           "radial-gradient(circle at top right, rgba(214, 176, 138, 0.25), transparent 30%), linear-gradient(180deg, #fbf7ef 0%, #f2eadf 100%)",
         color: theme.colors.text,
@@ -15,11 +15,72 @@ export default function HomePage() {
         padding: 24,
       }}
     >
+      {/* CSS-driven responsive styles injected directly into head to prevent hydration delay flashes */}
+      <style dangerouslySetInnerHTML={{ __html: `
+        .hero-grid {
+          display: grid;
+          grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+        }
+        .hero-figure {
+          min-height: 360px;
+        }
+        .featured-section {
+          display: grid;
+        }
+        .card-art-container {
+          width: 196px;
+          height: 282px;
+          border-radius: 22px;
+          box-shadow: 0 18px 32px rgba(35, 27, 21, 0.18);
+        }
+        .card-art-inset {
+          inset: 14px;
+        }
+        .card-art-label {
+          font-size: 24px;
+        }
+        .card-art-center {
+          font-size: 64px;
+        }
+        .card-art-center.face {
+          font-size: 56px;
+        }
+
+        @media (max-width: 767px) {
+          .hero-grid {
+            grid-template-columns: 1fr !important;
+          }
+          .hero-figure {
+            min-height: 240px !important;
+          }
+          .featured-section {
+            display: none !important;
+          }
+          .card-art-container {
+            width: 120px !important;
+            height: 172px !important;
+            border-radius: 14px !important;
+            box-shadow: 0 12px 24px rgba(35, 27, 21, 0.15) !important;
+          }
+          .card-art-inset {
+            inset: 8px !important;
+          }
+          .card-art-label {
+            font-size: 16px !important;
+          }
+          .card-art-center {
+            font-size: 40px !important;
+          }
+          .card-art-center.face {
+            font-size: 36px !important;
+          }
+        }
+      `}} />
+
       <section style={{ maxWidth: 1240, margin: "0 auto" }}>
         <div
+          className="hero-grid"
           style={{
-            display: "grid",
-            gridTemplateColumns: "minmax(0, 1.15fr) minmax(320px, 0.85fr)",
             gap: 24,
             alignItems: "center",
             marginBottom: 28,
@@ -33,14 +94,14 @@ export default function HomePage() {
               A simple archive for card games.
             </h1>
             <p style={{ maxWidth: 680, fontSize: 18, color: theme.colors.muted, lineHeight: 1.65 }}>
-              Clean, off-suit inspired games for a standard deck and a score sheet.
+              The standard 52, preserved.
             </p>
           </div>
           <figure
             aria-label="Classic playing cards cover composition"
+            className="hero-figure"
             style={{
               margin: 0,
-              minHeight: 360,
               position: "relative",
               borderRadius: theme.radii.lg,
               border: `1px solid ${theme.colors.border}`,
@@ -124,10 +185,12 @@ export default function HomePage() {
         </div>
 
         <div
+          className="featured-section"
           style={{
-            display: "grid",
             gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
             gap: 20,
+            marginTop: 12,
+            marginBottom: 32,
           }}
         >
           {sampleGames.map((game) => (
@@ -141,27 +204,29 @@ export default function HomePage() {
                 boxShadow: theme.shadow,
               }}
             >
-              <p style={{ color: theme.colors.accent, textTransform: "uppercase", letterSpacing: 2 }}>
+              <p style={{ color: theme.colors.accent, textTransform: "uppercase", letterSpacing: 2, margin: 0, fontSize: 11, fontWeight: 700 }}>
                 Featured
               </p>
-              <h2 style={{ fontSize: 30, margin: "10px 0" }}>{game.title}</h2>
-              <p style={{ color: theme.colors.muted }}>{game.subtitle}</p>
-              <dl style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12, marginTop: 20 }}>
+              <h2 style={{ fontSize: 28, margin: "8px 0", fontWeight: 800 }}>{game.title}</h2>
+              <p style={{ color: theme.colors.muted, fontSize: 14, margin: "0 0 20px" }}>{game.subtitle}</p>
+              <dl style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12, borderTop: `1px solid ${theme.colors.border}`, paddingTop: 16 }}>
                 <div>
-                  <dt style={{ color: theme.colors.muted, fontSize: 12 }}>Players</dt>
-                  <dd>{game.minPlayers}-{game.maxPlayers}</dd>
+                  <dt style={{ color: theme.colors.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>Players</dt>
+                  <dd style={{ margin: "4px 0 0", fontSize: 14, fontWeight: 600 }}>
+                    {game.maxPlayers ? `${game.minPlayers}–${game.maxPlayers}` : `${game.minPlayers}+`}
+                  </dd>
                 </div>
                 <div>
-                  <dt style={{ color: theme.colors.muted, fontSize: 12 }}>Time</dt>
-                  <dd>{game.playTimeMinutes} min</dd>
+                  <dt style={{ color: theme.colors.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>Time</dt>
+                  <dd style={{ margin: "4px 0 0", fontSize: 14, fontWeight: 600 }}>{game.playTimeMinutes} min</dd>
                 </div>
                 <div>
-                  <dt style={{ color: theme.colors.muted, fontSize: 12 }}>Decks</dt>
-                  <dd>{game.deckCount}</dd>
+                  <dt style={{ color: theme.colors.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>Decks</dt>
+                  <dd style={{ margin: "4px 0 0", fontSize: 14, fontWeight: 600 }}>{game.deckCount}</dd>
                 </div>
                 <div>
-                  <dt style={{ color: theme.colors.muted, fontSize: 12 }}>Scorekeeping</dt>
-                  <dd>{game.needsPaperScorekeeping ? "Paper" : "None"}</dd>
+                  <dt style={{ color: theme.colors.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>Scorekeeping</dt>
+                  <dd style={{ margin: "4px 0 0", fontSize: 14, fontWeight: 600 }}>{game.needsPaperScorekeeping ? "Paper" : "None"}</dd>
                 </div>
               </dl>
             </article>
@@ -222,39 +287,36 @@ function CardArt({
 }) {
   return (
     <div
+      className="card-art-container"
       style={{
         position: "absolute",
         left,
         top,
-        width: 196,
-        height: 282,
-        borderRadius: 22,
         background: "#ffffff",
-        boxShadow: "0 18px 32px rgba(35, 27, 21, 0.18)",
         border: "1px solid rgba(35, 27, 21, 0.08)",
         transform: `rotate(${rotate})`,
         zIndex,
         overflow: "hidden",
       }}
     >
-      <div style={{ position: "absolute", inset: 14, display: "flex", justifyContent: "space-between" }}>
-        <div style={{ fontSize: 24, lineHeight: 1, color: tint, fontWeight: 500 }}>
+      <div className="card-art-inset" style={{ position: "absolute", display: "flex", justifyContent: "space-between" }}>
+        <div className="card-art-label" style={{ lineHeight: 1, color: tint, fontWeight: 500 }}>
           <div>{label}</div>
-          <div style={{ fontSize: 24, marginTop: 2 }}>{suit}</div>
+          <div style={{ marginTop: 2 }}>{suit}</div>
         </div>
-        <div style={{ fontSize: 24, lineHeight: 1, color: tint, transform: "rotate(180deg)", fontWeight: 500 }}>
+        <div className="card-art-label" style={{ lineHeight: 1, color: tint, transform: "rotate(180deg)", fontWeight: 500 }}>
           <div>{label}</div>
-          <div style={{ fontSize: 24, marginTop: 2 }}>{suit}</div>
+          <div style={{ marginTop: 2 }}>{suit}</div>
         </div>
       </div>
       <div
+        className={`card-art-center ${face ? "face" : ""}`}
         style={{
           position: "absolute",
           inset: 0,
           display: "grid",
           placeItems: "center",
           color: tint,
-          fontSize: face ? 56 : 64,
           opacity: face ? 1 : 0.94,
           letterSpacing: -2,
         }}
