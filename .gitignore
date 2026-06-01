@@ -1,33 +1,58 @@
 # Dependencies
 node_modules/
 */node_modules/
+.pnpm-store/
 
 # Build output
 dist/
 build/
-.next/
 out/
 */dist/
 */build/
+*.tsbuildinfo
+
+# Next.js
+.next/
+.next/**/*
+out/
+.vercel/
+
+# Turborepo
+.turbo/
+.turbo/**/*
+
+# Caches
+.cache/
+.eslintcache
+.stylelintcache
 
 # Environment & secrets
 .env
 .env.local
 .env.*.local
+.env.production.local
 
 # IDE & editor
 .idea/
 .vscode/
+.vscode-test/
 *.swp
 *.swo
 *~
 .DS_Store
+Thumbs.db
 
 # Logs & coverage
 *.log
 logs/
 coverage/
+.nyc_output/
 
-# Runtime
-.turbo/
-.pnpm-lock.yaml
+# Package managers
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+
+# OS files
+.AppleDouble
+.LSOverride
