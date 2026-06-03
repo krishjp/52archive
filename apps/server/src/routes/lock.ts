@@ -17,7 +17,7 @@ export const lockRouter = Router({ mergeParams: true });
 const LOCK_MINUTES = 30;
 
 lockRouter.post("/", async (req: Request, res: Response) => {
-  const { id } = req.params;
+  const id = req.params.id as string;
   const { sessionId, refresh = false } = req.body as { sessionId: string; refresh?: boolean };
 
   if (!sessionId) {
@@ -75,7 +75,7 @@ lockRouter.post("/", async (req: Request, res: Response) => {
 });
 
 lockRouter.delete("/", async (req: Request, res: Response) => {
-  const { id } = req.params;
+  const id = req.params.id as string;
   const { sessionId } = req.body as { sessionId?: string };
 
   if (!sessionId) {

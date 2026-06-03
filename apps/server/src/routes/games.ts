@@ -1,40 +1,7 @@
-/**
- * GET /api/games
- * Returns all games with their latest graph and live lock status.
- * Seeds static sampleGames into Postgres on first call if the table is empty.
- */
 import { Router, Request, Response } from "express";
 import { query } from "@52archive/core/db";
-import { sampleGames } from "@52archive/core";
 
 export const gamesRouter = Router();
-
-async function seedIfEmpty() {
-  const count = await query<{ count: string }>("SELECT COUNT(*) as count FROM games;");
-  if (parseInt(count.rows[0].count, 10) > 0) return;
-
-  for (const game of sampleGames) {
-    await query(
-      `INSERT INTO games (id, title, subtitle, summary, min_players, max_players,
-        play_time_minutes, difficulty, tags, needs_paper_scorekeeping, deck_count,
-        featured, status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-       ON CONFLICT (id) DO NOTHING`,
-      [
-        game.id, game.title, game.subtitle ?? "", game.summary,
-        game.minPlayers, game.maxPlayers, game.playTimeMinutes,
-        game.difficulty, game.tags, game.needsPaperScorekeeping,
-        game.deckCount, game.featured ?? false, "approved",
-      ]
-    );
-    const graph = game.graph ?? { nodes: [], edges: [] };
-    await query(
-      `INSERT INTO game_versions (game_id, version, graph)
-       VALUES ($1, 1, $2) ON CONFLICT DO NOTHING`,
-      [game.id, JSON.stringify(graph)]
-    );
-  }
-}
 
 gamesRouter.post("/", async (req: Request, res: Response) => {
   const {
@@ -84,7 +51,6 @@ gamesRouter.post("/", async (req: Request, res: Response) => {
 
 gamesRouter.get("/", async (_req: Request, res: Response) => {
   try {
-    await seedIfEmpty();
     const result = await query<any>(`
       SELECT g.*,
              gv.graph as latest_graph

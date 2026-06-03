@@ -1,8 +1,10 @@
-import { sampleGames } from "@52archive/core";
 import { StyleSheet, Text, View } from "react-native";
 
 export default function App() {
-  const game = sampleGames[0];
+  const game = {
+    title: "Judgement",
+    subtitle: "A classic tactical trick-taking game"
+  };
 
   return (
     <View style={styles.screen}>

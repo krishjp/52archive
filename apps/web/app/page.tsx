@@ -1,9 +1,20 @@
-import { sampleGames } from "@52archive/core";
 import { theme } from "@52archive/ui";
+import { Game } from "@52archive/core";
 
 const filters = ["Play tonight", "Cozy", "Classic", "Two-player"];
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
-export default function HomePage() {
+export default async function HomePage() {
+  let games: Game[] = [];
+  try {
+    const res = await fetch(`${API_URL}/api/games`, { next: { revalidate: 0 } });
+    if (res.ok) {
+      games = await res.json();
+    }
+  } catch (e) {
+    console.error("Failed to fetch games for home page:", e);
+  }
+  const featuredGames = games.slice(0, 2);
   return (
     <main
       style={{
@@ -193,7 +204,7 @@ export default function HomePage() {
             marginBottom: 32,
           }}
         >
-          {sampleGames.map((game) => (
+          {featuredGames.map((game) => (
             <article
               key={game.id}
               style={{

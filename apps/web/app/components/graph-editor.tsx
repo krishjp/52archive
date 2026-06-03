@@ -288,7 +288,7 @@ export function GraphEditor({ game }: { game: EditorGame }) {
     [setEdges]
   );
 
-  const onEdgeUpdate = useCallback(
+  const onReconnect = useCallback(
     (oldEdge: Edge, newConnection: Connection) => {
       setEdges((els) =>
         els.map((e) =>
@@ -1153,7 +1153,7 @@ export function GraphEditor({ game }: { game: EditorGame }) {
                   onNodesChange={handleNodesChange}
                   onEdgesChange={handleEdgesChange}
                   onConnect={onConnect}
-                  onEdgeUpdate={onEdgeUpdate}
+                  onReconnect={onReconnect}
                   nodeTypes={nodeTypes}
                   onNodeClick={(_event: any, node: Node) => setSelectedId(node.id)}
                   fitView

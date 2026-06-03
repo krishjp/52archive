@@ -9,7 +9,7 @@ import { emitLockReleased, emitGameSaved } from "../lib/socket.js";
 export const gameRouter = Router({ mergeParams: true });
 
 gameRouter.get("/", async (req: Request, res: Response) => {
-  const { id } = req.params;
+  const id = req.params.id as string;
   try {
     const result = await query<any>(`
       SELECT g.*,
@@ -57,7 +57,7 @@ gameRouter.get("/", async (req: Request, res: Response) => {
 });
 
 gameRouter.put("/", async (req: Request, res: Response) => {
-  const { id } = req.params;
+  const id = req.params.id as string;
   const {
     sessionId, version, graph,
     title, subtitle, summary, minPlayers, maxPlayers,

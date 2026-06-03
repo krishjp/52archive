@@ -1,4 +1,3 @@
-import { sampleGames } from "@52archive/core";
 import { theme } from "@52archive/ui";
 
 export const metadata = {
@@ -6,9 +5,13 @@ export const metadata = {
   description: "Create and draft branching rules for new card games to add to the 52Archive catalog.",
 };
 
-const gameWithGraph = sampleGames.find((g) => g.graph && g.graph.nodes);
-const graphNodes = gameWithGraph?.graph?.nodes || [];
-const graphEdges = gameWithGraph?.graph?.edges || [];
+const graphNodes = [
+  { id: "setup", kind: "setup", title: "Game Setup", body: "Deal cards to players and set aside a trump card.", x: 20, y: 20 },
+  { id: "turn", kind: "turn", title: "Player Turn", body: "Play a card matching the suit led if possible.", x: 340, y: 20 }
+];
+const graphEdges = [
+  { id: "e1", from: "setup", to: "turn" }
+];
 
 export default function AddGamePage() {
   return (
