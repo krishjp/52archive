@@ -18,7 +18,7 @@
     "typescript": "^5.6.3"
   },
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "node --import tsx --watch src/index.ts",
     "start": "NODE_ENV=production tsx src/index.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "echo 'lint server'"

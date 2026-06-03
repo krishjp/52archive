@@ -19,7 +19,7 @@
     "@types/react-dom": "^19.0.3"
   },
   "scripts": {
-    "dev": "next dev",
+    "dev": "node ../../node_modules/next/dist/bin/next dev",
     "build": "next build",
     "start": "next start",
     "check": "tsc -p tsconfig.json --noEmit",

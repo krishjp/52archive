@@ -8,9 +8,9 @@
     "packages/*"
   ],
   "scripts": {
-    "dev:web": "npm run dev --workspace=web",
-    "dev:server": "npm run dev --workspace=@52archive/server",
-    "dev:clean": "node -e \"const fs = require('fs'); fs.rmSync('apps/web/.next', { recursive: true, force: true });\" && npm run dev:web",
+    "dev:web": "node node_modules/next/dist/bin/next dev apps/web",
+    "dev:server": "node --import tsx --watch apps/server/src/index.ts",
+    "dev:clean": "node -e \"const fs = require('fs'); fs.rmSync('apps/web/.next', { recursive: true, force: true });\" && node node_modules/next/dist/bin/next dev apps/web",
     "dev:ios": "npm run start --workspace=mobile",
     "check": "npm run check --workspaces",
     "lint": "npm run lint --workspaces",
@@ -25,5 +25,13 @@
   "dependencies": {
     "react": "19.2.6",
     "react-dom": "19.2.6"
+  },
+  "overrides": {
+    "react-native": {
+      "react": "18.3.1"
+    },
+    "expo": {
+      "react": "18.3.1"
+    }
   }
 }
