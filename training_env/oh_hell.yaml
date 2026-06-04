@@ -1,0 +1,75 @@
+schema_version: "2.0.0"
+description: "Block-Based Graph Definition Schema for Judgement (RL Environment Serialization)"
+
+graph_architecture:
+  blocks:
+    - type: "Deck_Initialization"
+      description: "Initializes the card deck and players."
+      parameters:
+        deck_size: 52
+        player_count:
+          min: 5
+          max: 7
+        team_structure: "singles"
+      notes: "Base card count and partnerships for the RL agent structure."
+
+    - type: "Deal_Phase"
+      description: "Distributes cards to player hand zones."
+      parameters:
+        distribution_mode: "dynamic_sequence"
+        cards_per_player: 7
+        deal_sequence: [7, 6, 5, 4, 3, 2, 1, 2, 3, 4, 5, 6, 7]
+        kitty_size: 0
+      notes: "Configures observations state for initial cards."
+
+    - type: "Trump_Selection"
+      description: "Determines trump suit mechanics."
+      parameters:
+        mode: "fixed_rotation"
+        rotation_sequence: ["Spades", "Diamonds", "Clubs", "Hearts"]
+        fallback_suit: "no_trump"
+      notes: "Alters action-value evaluation ranks for card play."
+
+    - type: "Bidding_Phase"
+      description: "Collects trick predictions."
+      parameters:
+        required: true
+        bidding_order: "sequential_clockwise"
+        bid_limits:
+          min: 0
+          max: "hand_size"
+        restrictions:
+          hook_rule: true
+      notes: "Directly maps predictions to RL value reward alignment."
+
+    - type: "Trick_Loop"
+      description: "Main gameplay round state machine loops."
+      sub_stages:
+        - stage: "Lead_Play"
+          rules:
+            lead_restrictions: "any"
+        - stage: "Follow_Play"
+          rules:
+            follow_suit_constraint: "strict"
+            trump_play_policy: "optional"
+        - stage: "Trick_Resolution"
+          rules:
+            eval_logic: "highest_rank_lead_or_trump"
+            winner_leads_next: true
+      notes: "Action space masks are defined here."
+
+    - type: "Scoring_Phase"
+      description: "Calculates mathematical reward values."
+      parameters:
+        scoring_rule: "exact_bid_only"
+        base_points_per_trick: 1
+        success_bonus: 10
+        failure_penalty: 0
+      notes: "The foundational feedback reward signal for training. Under 'exact_bid_only', scores are only awarded when players match their bid exactly."
+
+    - type: "Terminal_Condition"
+      description: "Evaluates terminal episode triggers."
+      parameters:
+        condition_type: "rounds_completed"
+        threshold: 19
+      notes: "Triggers terminal signals."

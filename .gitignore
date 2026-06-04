@@ -56,3 +56,23 @@ yarn.lock
 # OS files
 .AppleDouble
 .LSOverride
+
+# Models, Reports & Plots
+*.pt
+*report*
+*plot*
+report_*.csv
+report_*.txt
+plot_*.png
+training_report.csv
+training_report.txt
+training_reward_plot.png
+
+# Python bytecode and caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/

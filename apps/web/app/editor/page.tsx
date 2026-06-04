@@ -147,8 +147,8 @@ const PRESETS: Record<string, GameConfig & { desc: string; color: string }> = {
     terminal_condition: "score_threshold_reached",
     terminal_threshold: 10,
   },
-  oh_hell: {
-    name: "Oh Hell",
+  judgement: {
+    name: "Judgement",
     subtitle: "Exact Prediction Bidding",
     summary: "Bid your hand exactly. Shifting hand sizes each round.",
     desc: "An exact-prediction trick game with a shifting hand size.",
@@ -161,8 +161,8 @@ const PRESETS: Record<string, GameConfig & { desc: string; color: string }> = {
     cards_per_player: 10,
     deal_sequence: [10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
     kitty_size: 0,
-    trump_mode: "top_card_reveal",
-    rotation_sequence: [],
+    trump_mode: "fixed_rotation",
+    rotation_sequence: ["Spades", "Diamonds", "Clubs", "Hearts"],
     fallback_suit: "no_trump",
     bidding_required: true,
     bidding_order: "sequential_clockwise",
@@ -190,7 +190,7 @@ export default function StructuredEditorPage() {
   const [lockedBy, setLockedBy] = useState<string | null>(null);
   const [lockExpiresAt, setLockExpiresAt] = useState<string | null>(null);
   const [lockTimeLeft, setLockTimeLeft] = useState<string>("");
-  
+
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [copySuccess, setCopySuccess] = useState(false);
@@ -242,7 +242,7 @@ export default function StructuredEditorPage() {
           setGameStatus(data.status || "draft");
           setLockedBy(data.lockedBy || null);
           setLockExpiresAt(data.lockExpiresAt || null);
-          
+
           if (data.graph?.structuredConfig) {
             setConfig(data.graph.structuredConfig);
             setSelectedPreset("custom");
@@ -320,18 +320,18 @@ export default function StructuredEditorPage() {
       const sessionId = getSessionId();
       const url = `${API}/api/games/${activeGameId}/lock`;
       const payload = JSON.stringify({ sessionId });
-      
+
       fetch(url, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: payload,
         keepalive: true
-      }).catch(() => {});
+      }).catch(() => { });
     };
 
     window.addEventListener("pagehide", releaseLockOnClose);
     window.addEventListener("beforeunload", releaseLockOnClose);
-    
+
     return () => {
       window.removeEventListener("pagehide", releaseLockOnClose);
       window.removeEventListener("beforeunload", releaseLockOnClose);
@@ -374,9 +374,8 @@ export default function StructuredEditorPage() {
         id: "deal-phase",
         kind: "setup",
         title: "Deal Phase",
-        body: `Mode: ${targetConfig.distribution_mode}. Kitty: ${targetConfig.kitty_size}. Cards: ${
-          targetConfig.distribution_mode === "static" ? targetConfig.cards_per_player : targetConfig.deal_sequence.join(",")
-        }.`,
+        body: `Mode: ${targetConfig.distribution_mode}. Kitty: ${targetConfig.kitty_size}. Cards: ${targetConfig.distribution_mode === "static" ? targetConfig.cards_per_player : targetConfig.deal_sequence.join(",")
+          }.`,
         x: 350,
         y: 50,
       },
@@ -571,7 +570,7 @@ graph_architecture:
         if (data.lockExpiresAt) {
           setLockExpiresAt(data.lockExpiresAt);
         }
-        
+
         if (trainingStatus === "ready_for_training") {
           toast.success("Ready for training!", {
             description: "Rules saved & status changed to 'Ready for Training'! An admin will pull this configuration to train the agent model."
@@ -649,7 +648,8 @@ graph_architecture:
         fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
       }}
     >
-      <style dangerouslySetInnerHTML={{ __html: `
+      <style dangerouslySetInnerHTML={{
+        __html: `
         .editor-grid {
           display: grid;
           grid-template-columns: 1.2fr 1fr;
@@ -811,7 +811,7 @@ graph_architecture:
               <h2 style={{ fontSize: 24, fontWeight: 800, margin: 0 }}>Config Parameter Guide</h2>
               <button className="btn btn-secondary" onClick={() => setShowHelpModal(false)}>Close</button>
             </div>
-            
+
             <div style={{ display: "flex", flexDirection: "column", gap: 18, lineHeight: 1.6, fontSize: 14 }}>
               <div>
                 <strong style={{ color: "#b17a4b" }}>Deck Size:</strong>
@@ -835,7 +835,7 @@ graph_architecture:
               </div>
               <div>
                 <strong style={{ color: "#b17a4b" }}>Scoring Rule:</strong>
-                <p style={{ margin: "4px 0 0 0", color: theme.colors.muted }}>Maps mathematical reward functions for training AI agents: exact bid alignment rewards, bonus thresholds, or simple raw trick tallies.</p>
+                <p style={{ margin: "4px 0 0 0", color: theme.colors.muted }}>Maps mathematical reward functions. Options: "Exact Bid Only" (scores only come from matched tricks, e.g. Oh Hell), "Bid Matching Bonus", "Tricks Only", or penalties for undertricks/overtricks.</p>
               </div>
             </div>
           </div>
@@ -937,7 +937,7 @@ graph_architecture:
         <div className="editor-grid">
           {/* Form Options */}
           <div className="card-container" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-            
+
             {/* META-INFO DESCRIPTION */}
             <div>
               <h3 style={{ fontSize: 14, borderBottom: "1.5px solid rgba(35,27,21,0.06)", paddingBottom: 6, marginBottom: 14, fontWeight: 700, letterSpacing: 0.5 }}>
@@ -1241,11 +1241,11 @@ graph_architecture:
                   value={config.scoring_rule}
                   onChange={(e) => handleInputChange("scoring_rule", e.target.value)}
                 >
-                  <option value="tricks_only">Tricks Only</option>
-                  <option value="bid_matching_bonus">Bid Matching Bonus</option>
-                  <option value="exact_bid_only">Exact Bid Only</option>
-                  <option value="penalty_for_undertricks">Penalty for Undertricks</option>
-                  <option value="penalty_for_overtricks">Penalty for Overtricks</option>
+                  <option value="tricks_only">Tricks Only (points for every trick won)</option>
+                  <option value="bid_matching_bonus">Bid Matching Bonus (points for won tricks + bonus if matched)</option>
+                  <option value="exact_bid_only">Exact Bid Only (points only if bid is matched exactly, e.g. Oh Hell)</option>
+                  <option value="penalty_for_undertricks">Penalty for Undertricks (bonus if matched, penalty per trick short)</option>
+                  <option value="penalty_for_overtricks">Penalty for Overtricks (bonus if matched, penalty per trick over)</option>
                 </select>
               </div>
 
