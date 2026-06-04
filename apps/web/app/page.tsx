@@ -246,7 +246,7 @@ export default async function HomePage() {
 
         <div style={{ marginTop: 34, display: "flex", gap: 12, flexWrap: "wrap" }}>
           <a
-            href="/editor"
+            href="/add"
             style={{
               padding: "14px 18px",
               borderRadius: 999,

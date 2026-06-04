@@ -63,7 +63,16 @@ const cardActionLabels: Record<CardAction, string> = {
   pass: "Pass turn",
 };
 
-const stageOrder: FlowTemplateKey[] = ["setup", "team-creation", "turns", "scoring", "game-end", "branch"];
+const stageOrder: FlowTemplateKey[] = [
+  "deck-initialization",
+  "deal-phase",
+  "trump-selection",
+  "bidding-phase",
+  "trick-loop",
+  "scoring-phase",
+  "terminal-condition",
+  "note",
+];
 
 // Define our custom node types for React Flow
 const nodeTypes = {
@@ -382,7 +391,7 @@ export function GraphEditor({ game }: { game: EditorGame }) {
       body: `Player ${actionType === "swap" ? "swaps cards" : actionType === "place" ? "places card" : actionType === "discard" ? "discards card" : actionType === "draw" ? "draws card" : actionType === "reveal" ? "reveals card" : "passes their turn"}`,
       x: newX,
       y: newY,
-      stageKey: "turns",
+      stageKey: "trick-loop",
       occurrence: "per_turn",
       actor: "player",
       aiHint: `The player can ${actionType} at this point`,
@@ -536,7 +545,7 @@ export function GraphEditor({ game }: { game: EditorGame }) {
   // Add a specific branch condition node
   function addBranchCondition(fromId: string) {
     const sourceNode = graph.nodes.find((n) => n.id === fromId);
-    if (!sourceNode || sourceNode.stageKey !== "branch") return;
+    if (!sourceNode || (sourceNode.stageKey !== "note" && sourceNode.stageKey !== "trump-selection" && sourceNode.stageKey !== "bidding-phase")) return;
 
     const outgoing = graph.edges.filter((e) => e.from === fromId);
     const idx = outgoing.length;
@@ -548,7 +557,7 @@ export function GraphEditor({ game }: { game: EditorGame }) {
       kind: "note",
       title: `Condition Target`,
       body: "Add logic requirements for this branch condition.",
-      stageKey: "branch",
+      stageKey: "note",
       occurrence: "conditional",
       actor: "system",
       x: targetX,
@@ -1135,7 +1144,10 @@ export function GraphEditor({ game }: { game: EditorGame }) {
             {(() => {
               const styledEdges = edges.map((edge) => {
                 const srcNode = nodes.find((n) => n.id === edge.source);
-                const isSourceBranch = srcNode?.data?.kind === "decision";
+                const isSourceBranch =
+                  srcNode?.data?.kind === "trump-selection" ||
+                  srcNode?.data?.kind === "bidding-phase" ||
+                  srcNode?.data?.kind === "note";
                 return {
                   ...edge,
                   style: {
@@ -1196,7 +1208,7 @@ export function GraphEditor({ game }: { game: EditorGame }) {
                 </Field>
                 <Field label="Stage">
                   <select
-                    value={activeNode.stageKey ?? "branch"}
+                    value={activeNode.stageKey ?? "note"}
                     onChange={(e) =>
                       updateNode(activeNode.id, {
                         stageKey: (e.target as HTMLSelectElement).value as GraphNode["stageKey"],
@@ -1204,12 +1216,14 @@ export function GraphEditor({ game }: { game: EditorGame }) {
                     }
                     style={inputStyle()}
                   >
-                    <option value="setup">Setup</option>
-                    <option value="teams">Team creation</option>
-                    <option value="turns">Player turns</option>
-                    <option value="scoring">Scoring</option>
-                    <option value="end">Game end</option>
-                    <option value="branch">Branch</option>
+                    <option value="deck-initialization">Deck Initialization</option>
+                    <option value="deal-phase">Deal Phase</option>
+                    <option value="trump-selection">Trump Selection</option>
+                    <option value="bidding-phase">Bidding Phase</option>
+                    <option value="trick-loop">Trick Loop</option>
+                    <option value="scoring-phase">Scoring Phase</option>
+                    <option value="terminal-condition">Terminal Condition</option>
+                    <option value="note">Note</option>
                   </select>
                 </Field>
                 <Field label="Occurrence">
@@ -1251,7 +1265,7 @@ export function GraphEditor({ game }: { game: EditorGame }) {
                   />
                 </Field>
 
-                {activeNode.stageKey === "turns" && (
+                 {activeNode.stageKey === "trick-loop" && (
                   <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${theme.colors.border}` }}>
                     <p
                       style={{
@@ -1290,7 +1304,9 @@ export function GraphEditor({ game }: { game: EditorGame }) {
                   </div>
                 )}
 
-                {activeNode.stageKey === "branch" && (
+                {(activeNode.stageKey === "note" ||
+                  activeNode.stageKey === "trump-selection" ||
+                  activeNode.stageKey === "bidding-phase") && (
                   <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${theme.colors.border}` }}>
                     <p
                       style={{

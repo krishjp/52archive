@@ -4,7 +4,7 @@ const judgementGraph = {
   nodes: [
     {
       id: "setup",
-      kind: "setup",
+      kind: "deck-initialization",
       title: "Set the table",
       body: "Use one standard deck. Choose a dealer, write each player's starting score on paper, and decide how many rounds you will play.",
       x: 0,
@@ -12,7 +12,7 @@ const judgementGraph = {
     },
     {
       id: "deal",
-      kind: "turn",
+      kind: "deal-phase",
       title: "Deal for the round",
       body: "The dealer gives each player a hand equal to the current round number. In round one, deal one card each; in round ten, deal ten cards each.",
       x: 360,
@@ -20,7 +20,7 @@ const judgementGraph = {
     },
     {
       id: "bid",
-      kind: "decision",
+      kind: "bidding-phase",
       title: "Make a bid",
       body: "Each player predicts how many tricks they will win. This creates the main branching tension of the game.",
       x: 720,
@@ -28,7 +28,7 @@ const judgementGraph = {
     },
     {
       id: "play",
-      kind: "turn",
+      kind: "trick-loop",
       title: "Play tricks",
       body: "Players follow suit when possible and the highest card of the led suit wins the trick.",
       x: 1080,
@@ -36,7 +36,7 @@ const judgementGraph = {
     },
     {
       id: "score",
-      kind: "score",
+      kind: "scoring-phase",
       title: "Score the round",
       body: "Match your bid to your tricks for points. Miss your bid and take a penalty. Record everything on paper.",
       x: 1440,
@@ -44,7 +44,7 @@ const judgementGraph = {
     },
     {
       id: "next-round",
-      kind: "variant",
+      kind: "trump-selection",
       title: "Advance or reverse",
       body: "After the peak round, decrease the number of cards dealt each hand until the final round is complete.",
       x: 720,
@@ -52,7 +52,7 @@ const judgementGraph = {
     },
     {
       id: "win",
-      kind: "game-end",
+      kind: "terminal-condition",
       title: "Highest score wins",
       body: "After all rounds, the player with the best total score wins the session.",
       x: 1080,

@@ -1,87 +1,118 @@
-schema_version: "1.0.0"
-description: "Generalized Graph-Based Core Framework for Card Game Definitions and AI Training"
+schema_version: "2.0.0"
+description: "Block-Based Graph Definition Schema for Trick-Taking Card Games and RL Environment Serialization"
 
-# Core Graph Components
+# Pure Block-Based Graph Architecture (Optimized for Trick-Taking)
+# All nodes (blocks) represent functional environment steps. Description attributes are strictly for human designers.
 graph_architecture:
-  node_definition:
-    type: "Game_State"
-    description: "A comprehensive snapshot of the entire game environment at a specific logical moment."
-    attributes:
-      game_phase:
-        type: "string"
-        allowed_values: ["setup", "deal", "betting", "draw", "play_action", "meld", "scoring", "terminal"]
-      active_player_id: "string"
-      zones:
-        description: "Physical or logical locations tracking exact card distributions."
-        player_hands: "map[player_id]list(card_id)"
-        stock_deck: "list(card_id)"
-        discard_pile: "list(card_id)"
-        table_state: 
-          description: "Active trick, community cards, or active melds."
-          type: "list(card_id)"
-      visibility_matrix:
-        description: "Defines Imperfect Information. Maps player visibility to cards."
-        type: "matrix[player_id][card_id]"
-        values: ["VISIBLE", "HIDDEN_OWNED_BY_SELF", "HIDDEN_OWNED_BY_OPPONENT", "HIDDEN_IN_DECK"]
+  blocks:
+    - type: "Deck_Initialization"
+      description: "Initializes the card deck and players. (Human visibility only)"
+      parameters:
+        deck_size:
+          type: "integer"
+          allowed_values: [24, 32, 36, 40, 48, 52] # e.g., Euchre, Skat, Belote, Standard
+        player_count:
+          type: "integer"
+          range: [2, 10]
+        team_structure:
+          type: "string"
+          allowed_values: ["singles", "fixed_partnerships", "dynamic_partnerships"]
+      notes: "Human note: Defines the base cards and alliances for the game."
 
-  edge_definition:
-    type: "Game_Transition"
-    description: "An action or event moving the game from Node N to Node N+1."
-    attributes:
-      action_type:
-        type: "string"
-        allowed_values: ["deal_card", "play_card", "draw_card", "discard_card", "meld_cards", "bet", "fold", "pass"]
-      player_id: "string"
-      payload: "map(string, string)" # e.g., card played, chips betted
-      transition_type:
-        type: "string"
-        enum: ["deterministic", "stochastic"]
-      probability: 
-        type: "float"
-        description: "Defaults to 1.0 for deterministic moves. Calculated dynamically for stochastic chance nodes."
+    - type: "Deal_Phase"
+      description: "Distributes cards to player hand zones. (Human visibility only)"
+      parameters:
+        distribution_mode:
+          type: "string"
+          allowed_values: ["static", "dynamic_sequence"]
+        cards_per_player:
+          type: "integer"
+          description: "Used if mode is static (e.g., always deal 13 cards in Spades)."
+        deal_sequence:
+          type: "list(integer)"
+          description: "Used if mode is dynamic_sequence (e.g., Oh Hell round dealing sequence: [1,2,3,4,5,6,7,8,9,10,10,9,8,7,6,5,4,3,2,1])."
+        kitty_size:
+          type: "integer"
+          default: 0
+      notes: "Human note: Tracks card distribution and remainder deck."
 
-# Mapping Rules to Graph Operations
-game_mechanics_mapping:
-  rules_as_filters:
-    description: "How game-specific rules constrain the generation of valid outbound edges from a node."
-    examples:
-      follow_suit:
-        logic: "If table_state.lead_suit exists AND player_hands[active_id] contains lead_suit, filter outgoing edges to ONLY actions playing lead_suit."
-      rank_comparison:
-        logic: "Evaluate table_state terminal nodes to resolve trick ownership and assign node score weights."
-      set_accumulation:
-        logic: "Validate if sub-graph within player_hands fits sequence/set patterns to trigger a meld edge."
+    - type: "Trump_Selection"
+      description: "Defines how the trump suit is determined for the current round. (Human visibility only)"
+      parameters:
+        mode:
+          type: "string"
+          allowed_values: ["none", "fixed_rotation", "top_card_reveal", "highest_bidder_decides"]
+        rotation_sequence:
+          type: "list(string)" # e.g., ["spades", "diamonds", "clubs", "hearts", "no_trump"]
+        fallback_suit:
+          type: "string"
+          default: "no_trump"
+      notes: "Human note: Essential for calculating card rankings in trick resolution."
 
-# AI Capability and Traversal Specifications
-ai_engine_configuration:
-  graph_type_by_information_density:
-    perfect_information:
-      games: ["Solitaire", "Open-hand variants"]
-      recommended_algorithms: ["Minimax", "Alpha-Beta Pruning", "A* Search"]
-      graph_nature: "Deterministic Directed Acyclic Graph (DAG)"
-    imperfect_information:
-      games: ["Poker", "Hearts", "Spades", "Rummy", "Blackjack"]
-      recommended_algorithms: ["Counterfactual Regret Minimization (CFR)", "Monte Carlo Tree Search (MCTS)", "Expectiminimax"]
-      graph_nature: "Stochastic Game Tree with Information Sets"
-  
-  optimization_directives:
-    state_explosion_mitigation:
-      - "Do not pre-compute the full graph. Generate outbound edges dynamically on-the-fly."
-      - "Implement abstract state representations (e.g., treat all suit variations identically if they hold no mathematical difference in scoring)."
-    reward_system:
-      node_weights:
-        terminal_win: 100
-        terminal_loss: -100
-        trick_won: 10
-        penalty_card_taken: -5
+    - type: "Bidding_Phase"
+      description: "Collects trick-taking bids from players before play. (Human visibility only)"
+      parameters:
+        required:
+          type: "boolean"
+        bidding_order:
+          type: "string"
+          allowed_values: ["sequential_clockwise", "simultaneous"]
+        bid_limits:
+          min: "integer"
+          max: "string" # "hand_size" or integer
+        restrictions:
+          hook_rule:
+            type: "boolean"
+            description: "If true, dealer's bid cannot make total bids equal total cards dealt (Oh Hell Hook)."
+      notes: "Human note: Feeds into RL reward calculations (e.g., matching or exceeding bid)."
 
-# Example Instantiation Rules for Specific Genres
-genre_templates:
-  trick_taking:
-    graph_looping: false
-    structural_cycles: "Forbidden (Hand sizes strictly decrement)"
-    terminal_condition: "All player_hands are empty"
-  accumulating_rummy:
-    graph_looping: true
-    structural_cycles: "Allowed (Deck reshuffles create cyclic paths back to identical card states)"
-    terminal_condition: "At least one player_hand count equals 0 AND meld criteria met"
+    - type: "Trick_Loop"
+      description: "Loops for N tricks where N = current hand size. (Human visibility only)"
+      sub_stages:
+        - stage: "Lead_Play"
+          rules:
+            lead_restrictions:
+              type: "string"
+              allowed_values: ["any", "no_trump_until_broken", "no_hearts_first"]
+        - stage: "Follow_Play"
+          rules:
+            follow_suit_constraint: "strict" # Must play lead suit if possessed
+            trump_play_policy:
+              type: "string"
+              allowed_values: ["optional", "must_trump_if_void", "must_overtrump"]
+        - stage: "Trick_Resolution"
+          rules:
+            eval_logic: "highest_rank_lead_or_trump"
+            winner_leads_next: true
+      notes: "Human note: Controls the iterative playing of cards until hands are empty."
+
+    - type: "Scoring_Phase"
+      description: "Calculates scores at the end of a round. (Human visibility only)"
+      parameters:
+        scoring_rule:
+          type: "string"
+          allowed_values: ["tricks_only", "bid_matching_bonus", "exact_bid_only", "penalty_for_undertricks", "penalty_for_overtricks"]
+        base_points_per_trick: "integer"
+        success_bonus: "integer"
+        failure_penalty: "integer"
+      notes: "Human note: Used to formulate the RL environment's step and terminal rewards."
+
+    - type: "Terminal_Condition"
+      description: "Evaluates whether the game loop finishes. (Human visibility only)"
+      parameters:
+        condition_type:
+          type: "string"
+          allowed_values: ["rounds_completed", "score_threshold_reached"]
+        threshold:
+          type: "integer"
+      notes: "Human note: Triggers terminal states in RL environments."
+
+# Logical Edges (Block Connections)
+# Controls the routing flow of the game state machine.
+edge_definitions:
+  attributes:
+    from_block: "string"
+    to_block: "string"
+    transition_trigger:
+      type: "string"
+      allowed_values: ["immediate", "on_completion", "conditional_loop", "conditional_end"]

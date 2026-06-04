@@ -10,13 +10,13 @@ export type GameTag =
   | "cozy";
 
 export type GraphNodeKind =
-  | "setup"
-  | "team-creation"
-  | "turn"
-  | "decision"
-  | "score"
-  | "game-end"
-  | "variant"
+  | "deck-initialization"
+  | "deal-phase"
+  | "trump-selection"
+  | "bidding-phase"
+  | "trick-loop"
+  | "scoring-phase"
+  | "terminal-condition"
   | "note";
 
 export type GraphNode = {
@@ -26,7 +26,15 @@ export type GraphNode = {
   body: string;
   x: number;
   y: number;
-  stageKey?: "setup" | "teams" | "turns" | "scoring" | "end" | "branch";
+  stageKey?:
+    | "deck-initialization"
+    | "deal-phase"
+    | "trump-selection"
+    | "bidding-phase"
+    | "trick-loop"
+    | "scoring-phase"
+    | "terminal-condition"
+    | "note";
   occurrence?: "once" | "per_round" | "per_turn" | "conditional";
   actor?: "system" | "player" | "team" | "ai";
   aiHint?: string;

@@ -4,8 +4,15 @@ import { useEffect, useRef, useState, useMemo } from "react";
 import { theme } from "@52archive/ui";
 import { toast } from "sonner";
 import { io as ioClient, Socket } from "socket.io-client";
+import MarkdownIt from "markdown-it";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+
+const md = new MarkdownIt({
+  html: true,
+  linkify: true,
+  typographer: true,
+});
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -26,6 +33,7 @@ interface GameListing {
   lockedBy: string | null;
   lockExpiresAt: string | null;
   graph?: { nodes: any[]; edges: any[] };
+  status?: string;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -183,32 +191,91 @@ export default function GamesPage() {
 
   // ── Render helpers ───────────────────────────────────────────────────────
   function renderTextRules(rules: string) {
-    return rules.split("\n").map((line, idx) => {
-      const trimmed = line.trim();
-      if (!trimmed) return <div key={idx} style={{ height: 12 }} />;
-      if (trimmed.startsWith("###")) {
-        return (
-          <h4
-            key={idx}
-            style={{
-              fontSize: 18,
-              fontWeight: 800,
-              color: theme.colors.accent,
-              margin: "24px 0 10px 0",
-              borderBottom: `1px solid ${theme.colors.border}`,
-              paddingBottom: 6,
-            }}
-          >
-            {trimmed.replace(/^###\s*/, "")}
-          </h4>
-        );
-      }
-      return (
-        <p key={idx} style={{ lineHeight: 1.65, color: theme.colors.text, fontSize: 14.5, margin: "0 0 12px 0" }}>
-          {trimmed}
-        </p>
-      );
-    });
+    return (
+      <div className="text-rules-container">
+        <style dangerouslySetInnerHTML={{ __html: `
+          .text-rules-container h1, .text-rules-container h2, .text-rules-container h3, .text-rules-container h4 {
+            color: ${theme.colors.accent};
+            margin-top: 20px;
+            margin-bottom: 8px;
+            font-weight: 800;
+          }
+          .text-rules-container h1 { font-size: 20px; }
+          .text-rules-container h2 { font-size: 18px; }
+          .text-rules-container h3, .text-rules-container h4 { font-size: 16px; }
+          .text-rules-container p {
+            margin: 0 0 12px 0;
+            line-height: 1.65;
+            color: ${theme.colors.text};
+            font-size: 14.5px;
+          }
+          .text-rules-container ul, .text-rules-container ol {
+            padding-left: 20px;
+            margin-bottom: 12px;
+          }
+          .text-rules-container li {
+            margin-bottom: 4px;
+            line-height: 1.5;
+            color: ${theme.colors.text};
+            font-size: 14.5px;
+          }
+          .text-rules-container strong {
+            font-weight: 700;
+            color: ${theme.colors.text};
+          }
+          .text-rules-container table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 16px;
+            font-size: 13.5px;
+          }
+          .text-rules-container th, .text-rules-container td {
+            border: 1px solid ${theme.colors.border};
+            padding: 8px 12px;
+            text-align: left;
+          }
+          .text-rules-container th {
+            background: rgba(35, 27, 21, 0.04);
+            font-weight: 700;
+          }
+          .text-rules-container blockquote {
+            border-left: 4px solid ${theme.colors.accent};
+            padding: 6px 16px;
+            margin: 0 0 16px 0;
+            background: rgba(177, 122, 75, 0.05);
+            font-style: italic;
+            color: ${theme.colors.muted};
+          }
+          .text-rules-container pre {
+            background: #1e1b18;
+            color: #f4eadc;
+            padding: 14px;
+            border-radius: 10px;
+            overflow-x: auto;
+            margin-bottom: 16px;
+          }
+          .text-rules-container code {
+            font-family: 'Courier New', Courier, monospace;
+            background: rgba(35, 27, 21, 0.06);
+            padding: 2px 5px;
+            border-radius: 4px;
+            font-size: 13px;
+          }
+          .text-rules-container pre code {
+            background: transparent;
+            padding: 0;
+            font-size: 12.5px;
+            color: inherit;
+          }
+          .text-rules-container hr {
+            border: 0;
+            border-top: 1.5px solid ${theme.colors.border};
+            margin: 20px 0;
+          }
+        `}} />
+        <div dangerouslySetInnerHTML={{ __html: md.render(rules) }} />
+      </div>
+    );
   }
 
   function LockBadge({ game }: { game: GameListing }) {
@@ -597,13 +664,17 @@ export default function GamesPage() {
                       <div style={{ fontSize: 11, color: theme.colors.muted }}>Transitions</div>
                     </div>
                     <div style={{ border: `1px solid ${theme.colors.border}`, padding: 12, borderRadius: 12, textAlign: "center", display: "grid", placeItems: "center" }}>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: "#2e7d32", background: "rgba(46, 125, 50, 0.1)", padding: "4px 8px", borderRadius: 8 }}>★ AI-Ready</span>
+                      {selectedGame.status === "ready_for_training" ? (
+                        <span style={{ fontSize: 11, fontWeight: 700, color: "#2e7d32", background: "rgba(46, 125, 50, 0.1)", padding: "4px 8px", borderRadius: 8 }}>★ AI-Ready</span>
+                      ) : (
+                        <span style={{ fontSize: 11, fontWeight: 700, color: "#d97706", background: "rgba(217, 119, 6, 0.1)", padding: "4px 8px", borderRadius: 8 }}>Draft</span>
+                      )}
                     </div>
                   </div>
-                  <div style={{ position: "relative", paddingLeft: 20, borderLeft: `2.5px solid ${theme.colors.accentSoft}` }}>
+                  <div style={{ position: "relative", paddingLeft: 24, borderLeft: `3px solid ${theme.colors.accentSoft}` }}>
                     {selectedGame.graph?.nodes.map((node, index) => (
                       <div key={node.id} style={{ position: "relative", marginBottom: index === selectedGame.graph!.nodes.length - 1 ? 0 : 24 }}>
-                        <div style={{ position: "absolute", left: -27.5, top: 4, width: 12, height: 12, borderRadius: "50%", background: theme.colors.accent, border: "3px solid #ffffff", boxShadow: "0 2px 6px rgba(0,0,0,0.1)" }} />
+                        <div style={{ position: "absolute", left: "-34.5px", top: "50%", transform: "translateY(-50%)", width: 12, height: 12, borderRadius: "50%", background: theme.colors.accent, border: "3px solid #ffffff", boxShadow: "0 2px 6px rgba(0,0,0,0.1)", zIndex: 2 }} />
                         <div style={{ background: "#ffffff", border: `1px solid ${theme.colors.border}`, borderRadius: 16, padding: 16 }}>
                           <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.5, color: theme.colors.accent }}>{node.kind || "step"}</span>
                           <h4 style={{ margin: "4px 0 6px 0", fontSize: 16, fontWeight: 700 }}>{node.title}</h4>

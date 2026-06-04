@@ -1,6 +1,14 @@
 import type { Game, GraphNode, RuleGraph } from "./types";
 
-export type FlowTemplateKey = "setup" | "team-creation" | "turns" | "scoring" | "game-end" | "branch";
+export type FlowTemplateKey =
+  | "deck-initialization"
+  | "deal-phase"
+  | "trump-selection"
+  | "bidding-phase"
+  | "trick-loop"
+  | "scoring-phase"
+  | "terminal-condition"
+  | "note";
 
 export type FlowTemplate = {
   key: FlowTemplateKey;
@@ -10,92 +18,120 @@ export type FlowTemplate = {
 
 export const flowTemplates: FlowTemplate[] = [
   {
-    key: "setup",
-    label: "Setup",
-    description: "Deal, table prep, shuffle, and initial state.",
+    key: "deck-initialization",
+    label: "Deck Initialization",
+    description: "Define deck composition, custom cards, and shuffling rules.",
   },
   {
-    key: "team-creation",
-    label: "Team creation",
-    description: "Optional team assignment or seat-order grouping.",
+    key: "deal-phase",
+    label: "Deal Phase",
+    description: "Specify card distribution, initial hands, and deal mechanics.",
   },
   {
-    key: "turns",
-    label: "Player turns",
-    description: "The repeating move sequence and turn order.",
+    key: "trump-selection",
+    label: "Trump Selection",
+    description: "Determine the trump suit or trump card selection process.",
   },
   {
-    key: "scoring",
-    label: "Scoring",
-    description: "How points are calculated and recorded.",
+    key: "bidding-phase",
+    label: "Bidding Phase",
+    description: "Define bidding rules, predictions, and contract options.",
   },
   {
-    key: "game-end",
-    label: "Game end",
-    description: "How the game closes and a winner is determined.",
+    key: "trick-loop",
+    label: "Trick Loop",
+    description: "Handle individual trick execution, suit following, and trick resolution.",
   },
   {
-    key: "branch",
-    label: "Branch",
-    description: "Conditional rules, variants, and alternate paths.",
+    key: "scoring-phase",
+    label: "Scoring Phase",
+    description: "Tally points, check bids against results, and assign scores.",
+  },
+  {
+    key: "terminal-condition",
+    label: "Terminal Condition",
+    description: "Define standard end-of-game checks and final victory thresholds.",
+  },
+  {
+    key: "note",
+    label: "Note",
+    description: "Add annotations, developer comments, or regional rule variants.",
   },
 ];
 
 export function createFlowNode(template: FlowTemplateKey, index: number, x: number, y: number): GraphNode {
   const copy: Record<FlowTemplateKey, Omit<GraphNode, "id" | "x" | "y">> = {
-    setup: {
-      kind: "setup",
-      title: "Set up the table",
-      body: "Shuffle the deck, prepare scorekeeping, and establish the initial game state.",
-      stageKey: "setup",
+    "deck-initialization": {
+      kind: "deck-initialization",
+      title: "Initialize Deck",
+      body: "Prepare a standard 52-card deck (or custom sizes) and shuffle.",
+      stageKey: "deck-initialization",
       occurrence: "once",
       actor: "system",
-      aiHint: "AI should be able to infer setup state from the starting graph.",
+      aiHint: "Establish the starting deck properties and randomize order.",
     },
-    "team-creation": {
-      kind: "team-creation",
-      title: "Create teams",
-      body: "If the game uses teams, assign seats or groups before regular play begins.",
-      stageKey: "teams",
-      occurrence: "once",
-      actor: "system",
-      aiHint: "Teams can be optional and may be skipped for solo or free-for-all games.",
-    },
-    turns: {
-      kind: "turn",
-      title: "Run player turns",
-      body: "Describe the loop for player actions, turn order, and legal choices.",
-      stageKey: "turns",
-      occurrence: "per_turn",
-      actor: "player",
-      aiHint: "This node should express the turn loop clearly enough for AI play.",
-    },
-    scoring: {
-      kind: "score",
-      title: "Score the round",
-      body: "Track points, penalties, or bonuses based on the game rules.",
-      stageKey: "scoring",
+    "deal-phase": {
+      kind: "deal-phase",
+      title: "Deal Cards",
+      body: "Distribute cards to each active player to establish initial hands.",
+      stageKey: "deal-phase",
       occurrence: "per_round",
       actor: "system",
-      aiHint: "Scoring should be deterministic for AI evaluation.",
+      aiHint: "Determine hand sizes and assign cards to player zones.",
     },
-    "game-end": {
-      kind: "game-end",
-      title: "End the game",
-      body: "Define the winning condition, final tally, and end-of-game checks.",
-      stageKey: "end",
+    "trump-selection": {
+      kind: "trump-selection",
+      title: "Select Trump",
+      body: "Reveal a card, rotate suits, or award trump determination to the bid winner.",
+      stageKey: "trump-selection",
+      occurrence: "per_round",
+      actor: "system",
+      aiHint: "Set the trump suit modifier for trick evaluation.",
+    },
+    "bidding-phase": {
+      kind: "bidding-phase",
+      title: "Place Bids",
+      body: "Players bid predictions for the number of tricks they expect to win.",
+      stageKey: "bidding-phase",
+      occurrence: "per_round",
+      actor: "player",
+      aiHint: "Collect expectations for the round.",
+    },
+    "trick-loop": {
+      kind: "trick-loop",
+      title: "Play Tricks",
+      body: "Lead card, follow suit if possible, and resolve the trick winner.",
+      stageKey: "trick-loop",
+      occurrence: "per_turn",
+      actor: "player",
+      aiHint: "Evaluate trick winner based on ranks, leads, and active trumps.",
+    },
+    "scoring-phase": {
+      kind: "scoring-phase",
+      title: "Calculate Scores",
+      body: "Compare bid accuracy against tricks won and record points.",
+      stageKey: "scoring-phase",
+      occurrence: "per_round",
+      actor: "system",
+      aiHint: "Execute mathematical scoring formulas.",
+    },
+    "terminal-condition": {
+      kind: "terminal-condition",
+      title: "Determine Winner",
+      body: "Tally points over all rounds to announce the winner.",
+      stageKey: "terminal-condition",
       occurrence: "once",
       actor: "system",
-      aiHint: "This closes the flow and produces the final result.",
+      aiHint: "Finalize game loops and report game end.",
     },
-    branch: {
-      kind: "decision",
-      title: "Branch rule",
-      body: "Add a conditional path for variants, house rules, or alternate branches.",
-      stageKey: "branch",
+    note: {
+      kind: "note",
+      title: "Rule Note",
+      body: "Add context or descriptions for specific play variants.",
+      stageKey: "note",
       occurrence: "conditional",
-      actor: "player",
-      aiHint: "Branches must be explicit so AI can choose valid paths.",
+      actor: "system",
+      aiHint: "Human annotation.",
     },
   };
 
@@ -107,30 +143,24 @@ export function createFlowNode(template: FlowTemplateKey, index: number, x: numb
   };
 }
 
+export function buildStarterFlow(includeTeams?: boolean): RuleGraph {
+  const deckInit = createFlowNode("deck-initialization", 0, 0, 0);
+  const deal = createFlowNode("deal-phase", 1, 360, 0);
+  const trump = createFlowNode("trump-selection", 2, 720, 0);
+  const bidding = createFlowNode("bidding-phase", 3, 1080, 0);
+  const trickLoop = createFlowNode("trick-loop", 4, 1440, 0);
+  const scoring = createFlowNode("scoring-phase", 5, 1800, 0);
+  const terminal = createFlowNode("terminal-condition", 6, 2160, 0);
 
-export function buildStarterFlow(includeTeams: boolean): RuleGraph {
-  const setup = createFlowNode("setup", 0, 0, 0);
-  const teams = createFlowNode("team-creation", 1, 360, 0);
-  const turns = createFlowNode("turns", 2, 720, 0);
-  const scoring = createFlowNode("scoring", 3, 1080, 0);
-  const end = createFlowNode("game-end", 4, 1440, 0);
-  const branch = createFlowNode("branch", 5, 720, 240);
-
-  const nodes = includeTeams ? [setup, teams, turns, branch, scoring, end] : [setup, turns, branch, scoring, end];
-  const edges = includeTeams
-    ? ([
-        { id: "e-setup-teams", from: setup.id, to: teams.id, label: "if teams", branchType: "choice" },
-        { id: "e-teams-turns", from: teams.id, to: turns.id, label: "start play", branchType: "sequential" },
-        { id: "e-turns-branch", from: turns.id, to: branch.id, label: "variant", branchType: "conditional" },
-        { id: "e-branch-scoring", from: branch.id, to: scoring.id, label: "continue", branchType: "sequential" },
-        { id: "e-scoring-end", from: scoring.id, to: end.id, label: "finish", branchType: "sequential" },
-      ] satisfies RuleGraph["edges"])
-    : ([
-        { id: "e-setup-turns", from: setup.id, to: turns.id, label: "start play", branchType: "sequential" },
-        { id: "e-turns-branch", from: turns.id, to: branch.id, label: "variant", branchType: "conditional" },
-        { id: "e-branch-scoring", from: branch.id, to: scoring.id, label: "continue", branchType: "sequential" },
-        { id: "e-scoring-end", from: scoring.id, to: end.id, label: "finish", branchType: "sequential" },
-      ] satisfies RuleGraph["edges"]);
+  const nodes = [deckInit, deal, trump, bidding, trickLoop, scoring, terminal];
+  const edges: RuleGraph["edges"] = [
+    { id: "e-deck-deal", from: deckInit.id, to: deal.id, label: "deal cards", branchType: "sequential" },
+    { id: "e-deal-trump", from: deal.id, to: trump.id, label: "select trump", branchType: "sequential" },
+    { id: "e-trump-bidding", from: trump.id, to: bidding.id, label: "place bids", branchType: "sequential" },
+    { id: "e-bidding-trick", from: bidding.id, to: trickLoop.id, label: "play tricks", branchType: "sequential" },
+    { id: "e-trick-scoring", from: trickLoop.id, to: scoring.id, label: "tally scores", branchType: "sequential" },
+    { id: "e-scoring-terminal", from: scoring.id, to: terminal.id, label: "check winner", branchType: "sequential" },
+  ];
 
   return { nodes, edges };
 }

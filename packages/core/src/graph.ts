@@ -32,6 +32,6 @@ export function getGraphSummary(game: Game) {
   return {
     nodeCount: game.graph.nodes.length,
     edgeCount: game.graph.edges.length,
-    hasVariants: game.graph.nodes.some((node) => node.kind === "variant"),
+    hasVariants: game.graph.nodes.some((node) => node.kind === "trump-selection"),
   };
 }

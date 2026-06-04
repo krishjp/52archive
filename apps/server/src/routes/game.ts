@@ -61,7 +61,7 @@ gameRouter.put("/", async (req: Request, res: Response) => {
   const {
     sessionId, version, graph,
     title, subtitle, summary, minPlayers, maxPlayers,
-    playTimeMinutes, needsPaperScorekeeping,
+    playTimeMinutes, needsPaperScorekeeping, status,
   } = req.body as {
     sessionId: string;
     version: number;
@@ -73,6 +73,7 @@ gameRouter.put("/", async (req: Request, res: Response) => {
     maxPlayers?: number;
     playTimeMinutes?: number;
     needsPaperScorekeeping?: boolean;
+    status?: string;
   };
 
   if (!sessionId || version === undefined || !graph) {
@@ -111,12 +112,13 @@ gameRouter.put("/", async (req: Request, res: Response) => {
       [id, nextVersion, JSON.stringify(graph)]
     );
 
+    const lockExpiresAt = new Date(Date.now() + 30 * 60 * 1000);
+
     await query(
       `UPDATE games
        SET version = $1,
-           locked_by = NULL,
-           locked_at = NULL,
-           lock_expires_at = NULL,
+           locked_at = NOW(),
+           lock_expires_at = $11,
            updated_at = NOW(),
            title = COALESCE($3, title),
            subtitle = COALESCE($4, subtitle),
@@ -124,7 +126,8 @@ gameRouter.put("/", async (req: Request, res: Response) => {
            min_players = COALESCE($6, min_players),
            max_players = COALESCE($7, max_players),
            play_time_minutes = COALESCE($8, play_time_minutes),
-           needs_paper_scorekeeping = COALESCE($9, needs_paper_scorekeeping)
+           needs_paper_scorekeeping = COALESCE($9, needs_paper_scorekeeping),
+           status = COALESCE($10, status)
        WHERE id = $2`,
       [
         nextVersion,
@@ -136,13 +139,14 @@ gameRouter.put("/", async (req: Request, res: Response) => {
         maxPlayers ?? null,
         playTimeMinutes ?? null,
         needsPaperScorekeeping !== undefined ? needsPaperScorekeeping : null,
+        status ?? null,
+        lockExpiresAt.toISOString(),
       ]
     );
 
-    emitLockReleased(id);
     emitGameSaved(id);
 
-    res.json({ ok: true, version: nextVersion });
+    res.json({ ok: true, version: nextVersion, lockExpiresAt: lockExpiresAt.toISOString() });
   } catch (err: any) {
     console.error(`[PUT /api/games/${id}]`, err.message);
     res.status(500).json({ error: err.message });

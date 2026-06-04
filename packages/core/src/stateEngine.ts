@@ -3,15 +3,44 @@ import { z } from "zod";
 // --- CORE ZOD SCHEMAS ---
 
 export const GamePhaseSchema = z.enum([
-  "setup",
-  "deal",
-  "betting",
-  "draw",
-  "play_action",
-  "meld",
-  "scoring",
-  "terminal",
+  "deck-initialization",
+  "deal-phase",
+  "trump-selection",
+  "bidding-phase",
+  "trick-loop",
+  "scoring-phase",
+  "terminal-condition",
+  "note",
 ]);
+
+export const GraphNodeKindSchema = GamePhaseSchema;
+
+export const GraphNodeSchema = z.object({
+  id: z.string(),
+  kind: GraphNodeKindSchema,
+  title: z.string(),
+  body: z.string(),
+  x: z.number(),
+  y: z.number(),
+  stageKey: GamePhaseSchema.optional(),
+  occurrence: z.enum(["once", "per_round", "per_turn", "conditional"]).optional(),
+  actor: z.enum(["system", "player", "team", "ai"]).optional(),
+  aiHint: z.string().optional(),
+});
+
+export const GraphEdgeSchema = z.object({
+  id: z.string(),
+  from: z.string(),
+  to: z.string(),
+  label: z.string().optional(),
+  condition: z.string().optional(),
+  branchType: z.enum(["sequential", "choice", "conditional", "loop"]).optional(),
+});
+
+export const RuleGraphSchema = z.object({
+  nodes: z.array(GraphNodeSchema),
+  edges: z.array(GraphEdgeSchema),
+});
 
 export const ZoneStateSchema = z.object({
   playerHands: z.record(z.string(), z.array(z.string())), // player_id -> array of card_ids
