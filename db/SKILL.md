@@ -10,32 +10,35 @@ tags:
   - db-init
 ---
 
-# PostgreSQL Database Schema
+# MongoDB Database Schema
 
 ## Overview
-This skill outlines the relational schema configurations, constraint rules, indexing properties, and docker compose startup procedures for the local database.
+This skill outlines the database configurations, connection rules, collections structure, and docker compose startup procedures for the local MongoDB database.
 
 ## When to Use
 Use when:
-- Adding table variables, properties, or locks in initialization SQL files.
-- Indexing columns to optimize query speeds.
-- Modifying docker compose volume mappings or credentials.
+- Creating database indexes to optimize query speeds.
+- Modifying docker compose volume mappings or ports.
+- Reviewing schema validation schemas or collection setups.
 
 ## Instructions
-1. **Define Table Relational Constraints**:
-   Map `game_versions` references to `games(id)` using a foreign key constraint with cascading deletes.
+1. **Define Collections**:
+   - `games`: Stores metadata, players limits, tags, status, and edit locking states.
+   - `game_versions`: Reference games by `game_id` with incremental version numbers and the actual rule graph object.
 2. **Implement Index Strategies**:
-   - Establish indices on frequently filtered attributes like status and featured flags.
-   - Utilize a partial index on locked entries: `WHERE locked_by IS NOT NULL`.
+   - Establish indexes on frequently queried fields like `status` and `featured` flags.
+   - Create a compound index on `{ game_id: 1, version: -1 }` for version queries.
 
 ## Output Format
-- SQL schemas: Declared tables, references, and indexed structures.
+- MongoDB queries: Standard BSON queries and aggregation pipelines.
 
 ## Examples
-### Partial Index Creation
-```sql
-CREATE INDEX IF NOT EXISTS games_lock_idx ON games(locked_by) WHERE locked_by IS NOT NULL;
+### Index Creation Command
+```javascript
+db.games.createIndex({ status: 1 });
+db.game_versions.createIndex({ game_id: 1, version: -1 });
 ```
 
 ## Notes
 - Keep Docker database volume bindings mapped correctly to prevent local data loss when docker containers restart.
+

@@ -9,7 +9,7 @@
  *  - Heartbeat (POST with refresh:true) extends TTL every 5 minutes while editing
  */
 import { Router, Request, Response } from "express";
-import { query } from "@52archive/core/db";
+import { getCollection } from "@52archive/core/db";
 import { emitLockAcquired, emitLockReleased } from "../lib/socket.js";
 
 export const lockRouter = Router({ mergeParams: true });
@@ -26,15 +26,14 @@ lockRouter.post("/", async (req: Request, res: Response) => {
   }
 
   try {
-    const result = await query<{ locked_by: string | null; lock_expires_at: string | null }>(
-      "SELECT locked_by, lock_expires_at FROM games WHERE id = $1", [id]
-    );
-    if (!result.rows.length) {
+    const gamesCol = await getCollection("games");
+    const game = await gamesCol.findOne({ _id: id });
+    if (!game) {
       res.status(404).json({ error: "Game not found" });
       return;
     }
 
-    const { locked_by, lock_expires_at } = result.rows[0];
+    const { locked_by, lock_expires_at } = game;
     const now = new Date();
     const isExpired = !lock_expires_at || new Date(lock_expires_at) < now;
     const heldBySelf = locked_by === sessionId;
@@ -56,11 +55,15 @@ lockRouter.post("/", async (req: Request, res: Response) => {
 
     const expiresAt = new Date(now.getTime() + LOCK_MINUTES * 60 * 1000);
 
-    await query(
-      `UPDATE games
-       SET locked_by = $1, locked_at = NOW(), lock_expires_at = $2
-       WHERE id = $3`,
-      [sessionId, expiresAt.toISOString(), id]
+    await gamesCol.updateOne(
+      { _id: id },
+      {
+        $set: {
+          locked_by: sessionId,
+          locked_at: new Date(),
+          lock_expires_at: expiresAt
+        }
+      }
     );
 
     if (!refresh) {
@@ -84,15 +87,19 @@ lockRouter.delete("/", async (req: Request, res: Response) => {
   }
 
   try {
-    const result = await query(
-      `UPDATE games
-       SET locked_by = NULL, locked_at = NULL, lock_expires_at = NULL
-       WHERE id = $1 AND locked_by = $2
-       RETURNING id`,
-      [id, sessionId]
+    const gamesCol = await getCollection("games");
+    const result = await gamesCol.updateOne(
+      { _id: id, locked_by: sessionId },
+      {
+        $set: {
+          locked_by: null,
+          locked_at: null,
+          lock_expires_at: null
+        }
+      }
     );
 
-    if (result.rows.length > 0) {
+    if (result.modifiedCount > 0) {
       emitLockReleased(id);
     }
 

@@ -10,6 +10,7 @@
     "./db": "./src/db.ts"
   },
   "dependencies": {
+    "mongodb": "^7.2.0",
     "pg": "^8.21.0",
     "yaml": "^2.9.0",
     "zod": "^3.24.1"

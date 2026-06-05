@@ -1,36 +1,34 @@
-import pg from "pg";
+import { MongoClient, Db, Collection, Document } from "mongodb";
 
-const { Pool } = pg;
+const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/52archive";
 
-// Read database environment variables, fall back to docker-compose defaults
-export const pool = new Pool({
-  host: process.env.PGHOST || "localhost",
-  port: parseInt(process.env.PGPORT || "5432", 10),
-  database: process.env.PGDATABASE || "52archive",
-  user: process.env.PGUSER || "52archive",
-  password: process.env.PGPASSWORD || "52archive",
-  max: 10, // Maximum number of clients in the pool
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
-});
+let client: MongoClient | null = null;
+let db: Db | null = null;
 
-export async function query<T extends pg.QueryResultRow = any>(
-  text: string,
-  params?: any[]
-): Promise<pg.QueryResult<T>> {
-  const start = Date.now();
-  try {
-    const res = await pool.query<T>(text, params);
-    const duration = Date.now() - start;
-    // Log queries in debug environment if needed
-    return res;
-  } catch (error) {
-    console.error("Database query error:", { text, error });
-    throw error;
+export async function connectDb(): Promise<Db> {
+  if (db) return db;
+  client = new MongoClient(MONGODB_URI);
+  await client.connect();
+  db = client.db();
+  return db;
+}
+
+export async function getDb(): Promise<Db> {
+  return connectDb();
+}
+
+export async function getCollection<T extends Document = any>(name: string): Promise<Collection<T>> {
+  const database = await getDb();
+  return database.collection<T>(name);
+}
+
+export async function closeDb(): Promise<void> {
+  if (client) {
+    await client.close();
+    client = null;
+    db = null;
   }
 }
 
-// Clean shutdown utility
-export async function closePool(): Promise<void> {
-  await pool.end();
-}
+// Keep closePool alias for compatibility
+export const closePool = closeDb;

@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import yaml from "yaml";
 import { YAMLGameDefinitionSchema, GameStateNode, GameTransitionEdge } from "../stateEngine";
-import { query, closePool } from "../db";
+import { getCollection, closeDb } from "../db";
 
 async function main() {
   const args = process.argv.slice(2);
@@ -64,80 +64,58 @@ async function main() {
   try {
     console.log("Connecting to the database and performing upsert...");
 
-    // 1. Ingest/Upsert into the 'games' table
-    const gameUpsertQuery = `
-      INSERT INTO games (
-        id, title, subtitle, summary, min_players, max_players, 
-        play_time_minutes, difficulty, tags, needs_paper_scorekeeping, 
-        deck_count, featured, status, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())
-      ON CONFLICT (id) DO UPDATE SET
-        title = EXCLUDED.title,
-        subtitle = EXCLUDED.subtitle,
-        summary = EXCLUDED.summary,
-        min_players = EXCLUDED.min_players,
-        max_players = EXCLUDED.max_players,
-        play_time_minutes = EXCLUDED.play_time_minutes,
-        difficulty = EXCLUDED.difficulty,
-        tags = EXCLUDED.tags,
-        needs_paper_scorekeeping = EXCLUDED.needs_paper_scorekeeping,
-        deck_count = EXCLUDED.deck_count,
-        featured = EXCLUDED.featured,
-        status = EXCLUDED.status,
-        updated_at = NOW()
-      RETURNING id;
-    `;
+    const gamesCol = await getCollection("games");
+    const gameVersionsCol = await getCollection("game_versions");
 
-    const gameParams = [
-      gameData.id,
-      gameData.title,
-      gameData.subtitle || "",
-      gameData.summary,
-      gameData.minPlayers,
-      gameData.maxPlayers,
-      gameData.playTimeMinutes,
-      gameData.difficulty,
-      gameData.tags,
-      gameData.needsPaperScorekeeping,
-      gameData.deckCount,
-      false, // featured
-      "draft", // status
-    ];
-
-    await query(gameUpsertQuery, gameParams);
-    console.log(`✓ Game "${gameData.title}" upserted in 'games' table successfully.`);
+    // 1. Ingest/Upsert into the 'games' collection
+    await gamesCol.updateOne(
+      { _id: gameData.id },
+      {
+        $set: {
+          title: gameData.title,
+          subtitle: gameData.subtitle || "",
+          summary: gameData.summary,
+          min_players: gameData.minPlayers,
+          max_players: gameData.maxPlayers,
+          play_time_minutes: gameData.playTimeMinutes,
+          difficulty: gameData.difficulty,
+          tags: gameData.tags,
+          needs_paper_scorekeeping: gameData.needsPaperScorekeeping,
+          deck_count: gameData.deckCount,
+          featured: false,
+          status: "draft",
+          updated_at: new Date(),
+        }
+      },
+      { upsert: true }
+    );
+    console.log(`✓ Game "${gameData.title}" upserted in 'games' collection successfully.`);
 
     // 2. Fetch the next version number for this game
-    const versionQuery = `
-      SELECT COALESCE(MAX(version), 0) + 1 as next_version 
-      FROM game_versions 
-      WHERE game_id = $1;
-    `;
-    const versionResult = await query(versionQuery, [gameData.id]);
-    const nextVersion = versionResult.rows[0].next_version;
+    const versions = await gameVersionsCol.find({ game_id: gameData.id }).toArray();
+    let nextVersion = 1;
+    if (versions.length > 0) {
+      const maxVersion = Math.max(...versions.map(v => v.version));
+      nextVersion = maxVersion + 1;
+    }
 
-    // 3. Insert into the 'game_versions' table
-    const versionInsertQuery = `
-      INSERT INTO game_versions (game_id, version, graph, created_at)
-      VALUES ($1, $2, $3, NOW())
-      RETURNING id, version;
-    `;
-    const versionParams = [
-      gameData.id,
-      nextVersion,
-      JSON.stringify(graphContent),
-    ];
+    // 3. Insert into the 'game_versions' collection
+    const versionDoc = {
+      game_id: gameData.id,
+      version: nextVersion,
+      graph: graphContent,
+      created_at: new Date()
+    };
 
-    const versionInsertResult = await query(versionInsertQuery, versionParams);
-    const finalVersion = versionInsertResult.rows[0].version;
+    await gameVersionsCol.insertOne(versionDoc);
 
-    console.log(`✓ Saved version ${finalVersion} of "${gameData.title}" in 'game_versions' successfully.`);
+    console.log(`✓ Saved version ${nextVersion} of "${gameData.title}" in 'game_versions' successfully.`);
     console.log("=== PUSH COMPLETE ===");
   } catch (err: any) {
     console.error("Database Error during push-yaml execution:", err.message);
     process.exit(1);
   } finally {
-    await closePool();
+    await closeDb();
   }
 }
 

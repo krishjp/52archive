@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import { query } from "@52archive/core/db";
+import { getCollection } from "@52archive/core/db";
 
 export const gamesRouter = Router();
 
@@ -16,76 +16,88 @@ gamesRouter.post("/", async (req: Request, res: Response) => {
   }
 
   try {
-    await query(
-      `INSERT INTO games (id, title, subtitle, summary, min_players, max_players,
-        play_time_minutes, difficulty, tags, needs_paper_scorekeeping, deck_count,
-        featured, status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,false,'draft')`,
-      [
-        id, title, subtitle ?? "", summary, minPlayers ?? 2, maxPlayers ?? 6,
-        playTimeMinutes ?? 30, difficulty ?? "moderate", tags ?? ["custom"],
-        needsPaperScorekeeping ?? false, deckCount ?? 1,
-      ]
-    );
+    const gamesCol = await getCollection("games");
+    const existing = await gamesCol.findOne({ _id: id });
+    if (existing) {
+      res.status(409).json({ error: "A game with this ID already exists" });
+      return;
+    }
 
-    // Store graph or text rules as the first version
+    await gamesCol.insertOne({
+      _id: id,
+      title,
+      subtitle: subtitle ?? "",
+      summary,
+      min_players: minPlayers ?? 2,
+      max_players: maxPlayers ?? 6,
+      play_time_minutes: playTimeMinutes ?? 30,
+      difficulty: difficulty ?? "moderate",
+      tags: tags ?? ["custom"],
+      needs_paper_scorekeeping: needsPaperScorekeeping ?? false,
+      deck_count: deckCount ?? 1,
+      featured: false,
+      status: "draft",
+      version: 1,
+      created_at: new Date(),
+      updated_at: new Date()
+    });
+
     const graphPayload = isTextBased
       ? { nodes: [], edges: [], textRules: textRules ?? "" }
       : (graph ?? { nodes: [], edges: [] });
 
-    await query(
-      `INSERT INTO game_versions (game_id, version, graph) VALUES ($1, 1, $2)`,
-      [id, JSON.stringify(graphPayload)]
-    );
+    const gameVersionsCol = await getCollection("game_versions");
+    await gameVersionsCol.insertOne({
+      game_id: id,
+      version: 1,
+      graph: graphPayload,
+      created_at: new Date()
+    });
 
     res.status(201).json({ ok: true, id });
   } catch (err: any) {
-    if (err.code === "23505") {
-      res.status(409).json({ error: "A game with this ID already exists" });
-    } else {
-      console.error("[POST /api/games]", err.message);
-      res.status(500).json({ error: err.message });
-    }
+    console.error("[POST /api/games]", err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
 gamesRouter.get("/", async (_req: Request, res: Response) => {
   try {
-    const result = await query<any>(`
-      SELECT g.*,
-             gv.graph as latest_graph
-      FROM games g
-      LEFT JOIN LATERAL (
-        SELECT graph FROM game_versions
-        WHERE game_id = g.id
-        ORDER BY version DESC LIMIT 1
-      ) gv ON true
-      ORDER BY g.created_at DESC
-    `);
+    const gamesCol = await getCollection("games");
+    const gameVersionsCol = await getCollection("game_versions");
 
-    const games = result.rows.map((row: any) => ({
-      id: row.id,
-      title: row.title,
-      subtitle: row.subtitle,
-      summary: row.summary,
-      minPlayers: row.min_players,
-      maxPlayers: row.max_players,
-      playTimeMinutes: row.play_time_minutes,
-      difficulty: row.difficulty,
-      tags: row.tags,
-      needsPaperScorekeeping: row.needs_paper_scorekeeping,
-      deckCount: row.deck_count,
-      featured: row.featured,
-      status: row.status,
-      version: row.version,
-      lockedBy: row.locked_by ?? null,
-      lockExpiresAt: row.lock_expires_at ?? null,
-      graph: row.latest_graph ?? { nodes: [], edges: [] },
-      isTextBased: !row.latest_graph?.nodes?.length,
-      textRules: !row.latest_graph?.nodes?.length ? (row.latest_graph?.textRules ?? "") : undefined,
-    }));
+    const games = await gamesCol.find().sort({ created_at: -1 }).toArray();
 
-    res.json(games);
+    const gameList = [];
+    for (const g of games) {
+      const latestVersion = await gameVersionsCol.findOne(
+        { game_id: g._id },
+        { sort: { version: -1 } }
+      );
+      gameList.push({
+        id: g._id,
+        title: g.title,
+        subtitle: g.subtitle,
+        summary: g.summary,
+        minPlayers: g.min_players,
+        maxPlayers: g.max_players,
+        playTimeMinutes: g.play_time_minutes,
+        difficulty: g.difficulty,
+        tags: g.tags,
+        needsPaperScorekeeping: g.needs_paper_scorekeeping,
+        deckCount: g.deck_count,
+        featured: g.featured,
+        status: g.status,
+        version: g.version || 1,
+        lockedBy: g.locked_by ?? null,
+        lockExpiresAt: g.lock_expires_at ?? null,
+        graph: latestVersion?.graph ?? { nodes: [], edges: [] },
+        isTextBased: !latestVersion?.graph?.nodes?.length,
+        textRules: !latestVersion?.graph?.nodes?.length ? (latestVersion?.graph?.textRules ?? "") : undefined,
+      });
+    }
+
+    res.json(gameList);
   } catch (err: any) {
     console.error("[GET /api/games]", err.message);
     res.status(500).json({ error: err.message });
