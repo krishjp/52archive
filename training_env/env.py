@@ -179,6 +179,7 @@ class TrickTakingEnv:
         self.current_trick = [] # List of (player_id, card)
         self.lead_suit = None
         self.current_turn = 0
+        self.trick_leader = 0
         
         # Determine initial phase based on passing and bidding settings
         direction = self.passing_sequence[self.round_idx % len(self.passing_sequence)]
@@ -275,6 +276,7 @@ class TrickTakingEnv:
         
         if not self.current_trick:
             self.lead_suit = card[0]
+            self.trick_leader = player
             
         self.current_trick.append((player, card))
         

@@ -99,6 +99,130 @@ export default function GamesPage() {
   const [acquiringLock, setAcquiringLock] = useState(false);
   const socketRef = useRef<Socket | null>(null);
 
+  const [activeSimulationGame, setActiveSimulationGame] = useState<GameListing | null>(null);
+  const [simState, setSimState] = useState<any>(null);
+  const [simObservation, setSimObservation] = useState<any>(null);
+  const [simLogs, setSimLogs] = useState<string[]>([]);
+  const [simBiddingVal, setSimBiddingVal] = useState<string>("");
+  const [simHasModel, setSimHasModel] = useState<boolean>(false);
+  const [simIsLoading, setSimIsLoading] = useState<boolean>(false);
+
+  const [showSetupModal, setShowSetupModal] = useState(false);
+  const [setupGame, setSetupGame] = useState<GameListing | null>(null);
+  const [customRoundIndices, setCustomRoundIndices] = useState<string>("0");
+
+  const handlePlayGame = async (game: GameListing, roundIndices?: number[]) => {
+    setActiveSimulationGame(game);
+    setSimIsLoading(true);
+    setSimLogs([]);
+    try {
+      const res = await fetch(`${API}/api/games/${game.id}/simulate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          roundIndices: roundIndices || [0]
+        }),
+      });
+      if (!res.ok) {
+        toast.error("Failed to start simulation");
+        setActiveSimulationGame(null);
+        return;
+      }
+      const data = await res.json();
+      setSimState(data.state);
+      setSimObservation(data.observation);
+      setSimHasModel(data.has_model);
+      setSimLogs(data.logs || []);
+
+      if (!data.has_model) {
+        toast.info("Proceeding with Heuristics", {
+          description: "No trained neural model weight file is associated with this game entry yet. Falling back to base heuristics.",
+          duration: 6000
+        });
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error("Network error starting simulation");
+      setActiveSimulationGame(null);
+    } finally {
+      setSimIsLoading(false);
+    }
+  };
+
+  const handleSimSubmitBid = async (bidVal: number) => {
+    setSimIsLoading(true);
+    try {
+      const res = await fetch(`${API}/api/games/${activeSimulationGame!.id}/simulate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: bidVal,
+          state: simState
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSimState(data.state);
+        setSimObservation(data.observation);
+        setSimLogs(prev => [...prev, ...data.logs]);
+        setSimBiddingVal("");
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSimIsLoading(false);
+    }
+  };
+
+  const handleSimPlayCard = async (card: [string, number]) => {
+    setSimIsLoading(true);
+    try {
+      const res = await fetch(`${API}/api/games/${activeSimulationGame!.id}/simulate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: card,
+          state: simState
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSimState(data.state);
+        setSimObservation(data.observation);
+        setSimLogs(prev => [...prev, ...data.logs]);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSimIsLoading(false);
+    }
+  };
+
+  const handleSimNextRound = async () => {
+    setSimIsLoading(true);
+    try {
+      const res = await fetch(`${API}/api/games/${activeSimulationGame!.id}/simulate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "next_round",
+          state: simState
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSimState(data.state);
+        setSimObservation(data.observation);
+        setSimLogs(prev => [...prev, ...data.logs]);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSimIsLoading(false);
+    }
+  };
+
+
   // ── Load games from API ──────────────────────────────────────────────────
   useEffect(() => {
     fetch(`${API}/api/games`)
@@ -537,7 +661,7 @@ export default function GamesPage() {
                   <div>
                     <dt style={{ color: theme.colors.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>Players</dt>
                     <dd style={{ margin: "4px 0 0", fontSize: 14, fontWeight: 600 }}>
-                      {game.maxPlayers ? `${game.minPlayers}–${game.maxPlayers}` : `${game.minPlayers}+`}
+                      {game.maxPlayers && game.maxPlayers !== game.minPlayers ? `${game.minPlayers}–${game.maxPlayers}` : game.maxPlayers === game.minPlayers ? `${game.minPlayers}` : `${game.minPlayers}+`}
                     </dd>
                   </div>
                   <div>
@@ -621,7 +745,11 @@ export default function GamesPage() {
                 <div>
                   <strong style={{ fontSize: 12, color: theme.colors.muted, textTransform: "uppercase", letterSpacing: 1 }}>Players</strong>
                   <div style={{ fontSize: 15, fontWeight: 700, marginTop: 4 }}>
-                    {selectedGame.maxPlayers ? `${selectedGame.minPlayers} – ${selectedGame.maxPlayers} players` : `${selectedGame.minPlayers}+ players`}
+                    {selectedGame.maxPlayers && selectedGame.maxPlayers !== selectedGame.minPlayers
+                      ? `${selectedGame.minPlayers} – ${selectedGame.maxPlayers} players`
+                      : selectedGame.maxPlayers === selectedGame.minPlayers
+                      ? `${selectedGame.minPlayers} players`
+                      : `${selectedGame.minPlayers}+ players`}
                   </div>
                 </div>
                 <div>
@@ -698,6 +826,29 @@ export default function GamesPage() {
                 background: "linear-gradient(180deg, #fbf8f4 0%, #fffdfb 100%)",
               }}
             >
+              <button
+                onClick={() => {
+                  setSetupGame(selectedGame);
+                  setCustomRoundIndices("0, 1, 2");
+                  setShowSetupModal(true);
+                }}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  padding: "10px 24px",
+                  borderRadius: 16,
+                  background: "#2e7d32",
+                  color: "#ffffff",
+                  border: "none",
+                  fontWeight: 600,
+                  fontSize: 14,
+                  cursor: "pointer",
+                  boxShadow: "0 4px 12px rgba(46, 125, 50, 0.2)",
+                  transition: "background 0.2s ease",
+                }}
+              >
+                Play Terminal Preview
+              </button>
               {(() => {
                 const lock = lockMap[selectedGame.id];
                 const mine = lock?.sessionId === getSessionId();
@@ -736,6 +887,631 @@ export default function GamesPage() {
           </div>
         )}
       </section>
+
+      {showSetupModal && setupGame && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(35, 27, 21, 0.5)",
+            backdropFilter: "blur(8px)",
+            zIndex: 1000,
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            padding: 24,
+            fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif"
+          }}
+        >
+          <div
+            style={{
+              width: "100%",
+              maxWidth: 500,
+              background: theme.colors.surface,
+              border: `1px solid ${theme.colors.border}`,
+              borderRadius: theme.radii.lg,
+              boxShadow: "0 24px 64px rgba(35, 27, 21, 0.16)",
+              padding: 32,
+              display: "flex",
+              flexDirection: "column",
+              gap: 20
+            }}
+          >
+            <div>
+              <span style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 2, color: theme.colors.muted, display: "block", marginBottom: 4 }}>
+                Simulation Config
+              </span>
+              <h2 style={{ fontSize: 22, fontWeight: 800, color: theme.colors.text, margin: 0 }}>
+                Setup Deal Sequence
+              </h2>
+            </div>
+
+            <p style={{ fontSize: 14, color: theme.colors.muted, lineHeight: 1.6, margin: 0 }}>
+              The base game sequence can be long. You can modify which rounds to play from the deal sequence.
+            </p>
+
+            <div style={{ background: theme.colors.paper, padding: 16, borderRadius: 16, fontSize: 12.5, lineHeight: 1.5 }}>
+              <strong>Default Deal Sequence:</strong><br />
+              19 rounds with deal pattern:<br />
+              <code style={{ fontSize: 11, background: "rgba(35, 27, 21, 0.05)", padding: "2px 6px", borderRadius: 4, display: "block", marginTop: 4, wordBreak: "break-all" }}>
+                [10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+              </code>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <label htmlFor="round-indices-input" style={{ fontSize: 12, fontWeight: 700, color: theme.colors.text, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                Rounds to Play (indices, comma-separated):
+              </label>
+              <input
+                id="round-indices-input"
+                type="text"
+                value={customRoundIndices}
+                onChange={(e) => setCustomRoundIndices(e.target.value)}
+                placeholder="e.g. 0, 1, 2"
+                style={{
+                  background: theme.colors.surfaceRaised,
+                  border: `1px solid ${theme.colors.border}`,
+                  borderRadius: 14,
+                  padding: "12px 16px",
+                  fontSize: 14,
+                  fontFamily: "monospace",
+                  color: theme.colors.text,
+                  outline: "none",
+                  transition: "all 0.15s ease"
+                }}
+                onFocus={(e) => e.target.style.borderColor = theme.colors.accent}
+                onBlur={(e) => e.target.style.borderColor = theme.colors.border}
+              />
+              <span style={{ fontSize: 11, color: theme.colors.muted }}>
+                Examples: <code>0</code> (plays round 1 only), <code>0, 1, 2</code> (plays first 3 rounds)
+              </span>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 12, marginTop: 8 }}>
+              <button
+                onClick={() => setShowSetupModal(false)}
+                style={{
+                  background: "transparent",
+                  color: theme.colors.muted,
+                  border: "none",
+                  borderRadius: 12,
+                  padding: "10px 20px",
+                  cursor: "pointer",
+                  fontWeight: 600,
+                  fontSize: 14
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  const parsed = customRoundIndices
+                    .split(",")
+                    .map(s => parseInt(s.trim(), 10))
+                    .filter(n => !isNaN(n) && n >= 0 && n < 19);
+                  
+                  if (parsed.length === 0) {
+                    toast.error("Please enter at least one valid round index (0-18)");
+                    return;
+                  }
+                  
+                  setShowSetupModal(false);
+                  handlePlayGame(setupGame!, parsed);
+                }}
+                style={{
+                  background: theme.colors.accent,
+                  color: "#ffffff",
+                  border: "none",
+                  borderRadius: 16,
+                  padding: "10px 24px",
+                  cursor: "pointer",
+                  fontWeight: "bold",
+                  fontSize: 14,
+                  boxShadow: "0 4px 12px rgba(177, 122, 75, 0.2)"
+                }}
+              >
+                Start Simulation
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeSimulationGame && simObservation && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(35, 27, 21, 0.5)",
+            backdropFilter: "blur(8px)",
+            zIndex: 1000,
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            padding: 24,
+            fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
+          }}
+        >
+          <div
+            style={{
+              width: "100%",
+              maxWidth: 1000,
+              height: "85vh",
+              background: theme.colors.surface,
+              border: `1px solid ${theme.colors.border}`,
+              borderRadius: theme.radii.lg,
+              boxShadow: "0 24px 64px rgba(35, 27, 21, 0.16)",
+              display: "flex",
+              flexDirection: "column",
+              color: theme.colors.text,
+              overflow: "hidden"
+            }}
+          >
+            {/* Simulation Header */}
+            <div
+              style={{
+                background: theme.colors.surfaceRaised,
+                padding: "16px 24px",
+                borderBottom: `1px solid ${theme.colors.border}`,
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center"
+              }}
+            >
+              <div>
+                <span style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 2, color: theme.colors.muted, display: "block" }}>
+                  Interactive Simulator
+                </span>
+                <span style={{ fontWeight: 800, fontSize: 18, color: theme.colors.text }}>
+                  {activeSimulationGame.title}
+                </span>
+              </div>
+              <button
+                onClick={() => setActiveSimulationGame(null)}
+                style={{
+                  background: "transparent",
+                  color: theme.colors.muted,
+                  border: `1px solid ${theme.colors.border}`,
+                  borderRadius: 12,
+                  padding: "8px 16px",
+                  cursor: "pointer",
+                  fontWeight: 600,
+                  fontSize: 13,
+                  transition: "all 0.2s ease"
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "rgba(35, 27, 21, 0.05)";
+                  e.currentTarget.style.color = theme.colors.text;
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "transparent";
+                  e.currentTarget.style.color = theme.colors.muted;
+                }}
+              >
+                Exit Simulator
+              </button>
+            </div>
+
+            {/* Model/Heuristics status banner */}
+            {!simHasModel && (
+              <div
+                style={{
+                  background: "#fff9db",
+                  color: "#856404",
+                  borderBottom: "1px solid #ffeeba",
+                  padding: "8px 16px",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  textAlign: "center"
+                }}
+              >
+                ℹ️ Proceeding with heuristics: No trained neural model weights are associated with this game yet.
+              </div>
+            )}
+            {simHasModel && (
+              <div
+                style={{
+                  background: "#e6f4ea",
+                  color: "#137333",
+                  borderBottom: "1px solid #ceead6",
+                  padding: "8px 16px",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  textAlign: "center"
+                }}
+              >
+                ✓ Trained Neural Policy loaded successfully and driving AI agent choices.
+              </div>
+            )}
+
+            {/* Main simulation layout */}
+            <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+              {/* Left Panel: Log Monitor */}
+              <div
+                style={{
+                  flex: 1.2,
+                  padding: 20,
+                  borderRight: `1px solid ${theme.colors.border}`,
+                  overflowY: "auto",
+                  display: "flex",
+                  flexDirection: "column-reverse",
+                  fontSize: 13,
+                  lineHeight: 1.5,
+                  background: theme.colors.paper
+                }}
+              >
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {simLogs.map((log, idx) => (
+                    <div
+                      key={idx}
+                      style={{
+                        padding: "8px 12px",
+                        background: theme.colors.surfaceRaised,
+                        borderRadius: 10,
+                        border: `1px solid ${theme.colors.border}`,
+                        color: theme.colors.text,
+                        fontSize: 12.5,
+                        boxShadow: "0 2px 4px rgba(35, 27, 21, 0.02)"
+                      }}
+                    >
+                      {log}
+                    </div>
+                  ))}
+                  {simLogs.length === 0 && (
+                    <div style={{ color: theme.colors.muted, textAlign: "center", padding: 20 }}>
+                      Initializing simulator session...
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Right Panel: Game Board */}
+              <div style={{ flex: 1, padding: 20, display: "flex", flexDirection: "column", gap: 18, overflowY: "auto", background: theme.colors.surface }}>
+                
+                {/* Trump & Phase Header */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <div style={{ background: theme.colors.surfaceRaised, border: `1px solid ${theme.colors.border}`, padding: 12, borderRadius: 16, textAlign: "center" }}>
+                    <div style={{ fontSize: 10, color: theme.colors.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Trump Suit</div>
+                    <div style={{ fontSize: 18, fontWeight: 800 }}>
+                      {simObservation.trump_suit ? (
+                        <span style={{ color: (simObservation.trump_suit === "Hearts" || simObservation.trump_suit === "Diamonds") ? "#c92a2a" : theme.colors.text }}>
+                          {simObservation.trump_suit === "Spades" && "♠ Spades"}
+                          {simObservation.trump_suit === "Hearts" && "♥ Hearts"}
+                          {simObservation.trump_suit === "Clubs" && "♣ Clubs"}
+                          {simObservation.trump_suit === "Diamonds" && "♦ Diamonds"}
+                        </span>
+                      ) : (
+                        <span style={{ color: theme.colors.muted }}>No Trump</span>
+                      )}
+                    </div>
+                  </div>
+                  <div style={{ background: theme.colors.surfaceRaised, border: `1px solid ${theme.colors.border}`, padding: 12, borderRadius: 16, textAlign: "center" }}>
+                    <div style={{ fontSize: 10, color: theme.colors.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Current Phase</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, textTransform: "capitalize", color: theme.colors.accent }}>
+                      {simObservation.phase}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Scoreboard Table */}
+                <div style={{ background: theme.colors.surfaceRaised, border: `1px solid ${theme.colors.border}`, padding: 16, borderRadius: 16 }}>
+                  <div style={{ fontSize: 11, color: theme.colors.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>Scoreboard</div>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+                    <thead>
+                      <tr style={{ borderBottom: `2px solid ${theme.colors.border}`, textAlign: "left", color: theme.colors.muted }}>
+                        <th style={{ paddingBottom: 8 }}>Player</th>
+                        <th style={{ paddingBottom: 8 }}>Bid</th>
+                        <th style={{ paddingBottom: 8 }}>Tricks</th>
+                        <th style={{ paddingBottom: 8 }}>Score</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.keys(simObservation.scores || {}).map((pKey) => {
+                        const isPlayer = pKey === "0";
+                        return (
+                          <tr
+                            key={pKey}
+                            style={{
+                              borderBottom: `1px solid ${theme.colors.border}`,
+                              background: isPlayer ? "rgba(177, 122, 75, 0.08)" : "transparent",
+                              fontWeight: isPlayer ? "bold" : "normal"
+                            }}
+                          >
+                            <td style={{ padding: "8px 4px", color: isPlayer ? theme.colors.accent : theme.colors.text }}>
+                              {isPlayer ? "You (Player 0)" : `AI Agent ${pKey}`}
+                            </td>
+                            <td style={{ padding: "8px 4px" }}>
+                              {simObservation.bids?.[pKey] !== undefined ? simObservation.bids[pKey] : "-"}
+                            </td>
+                            <td style={{ padding: "8px 4px" }}>
+                              {simObservation.tricks_won?.[pKey] || 0}
+                            </td>
+                            <td style={{ padding: "8px 4px", fontWeight: "bold" }}>
+                              {simObservation.scores?.[pKey] || 0}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Current Trick Cards */}
+                <div style={{ background: theme.colors.surfaceRaised, border: `1px solid ${theme.colors.border}`, padding: 16, borderRadius: 16, flex: 1, display: "flex", flexDirection: "column" }}>
+                  <div style={{ fontSize: 11, color: theme.colors.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>Current Trick Pile</div>
+                  <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", justifyContent: "center", flex: 1 }}>
+                    {simObservation.current_trick?.map((trickItem: any, idx: number) => {
+                      const isPlayerTrickCardValid = Array.isArray(trickItem) && trickItem.length === 2 && Array.isArray(trickItem[1]);
+                      const suit = isPlayerTrickCardValid ? trickItem[1][0] : "";
+                      const rank = isPlayerTrickCardValid ? trickItem[1][1] : 0;
+                      const trickPlayer = isPlayerTrickCardValid ? trickItem[0] : null;
+
+                      if (!suit) return null;
+
+                      const isRed = suit === "Hearts" || suit === "Diamonds";
+                      const suitSym = suit === "Spades" ? "♠" : suit === "Hearts" ? "♥" : suit === "Clubs" ? "♣" : suit === "Diamonds" ? "♦" : suit;
+                      const rankLabel = rank === 11 ? "J" : rank === 12 ? "Q" : rank === 13 ? "K" : rank === 14 ? "A" : rank.toString();
+
+                      return (
+                        <div key={idx} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                          <div
+                            style={{
+                              width: 54,
+                              height: 76,
+                              borderRadius: 8,
+                              background: "#ffffff",
+                              border: `1px solid ${theme.colors.border}`,
+                              boxShadow: "0 4px 8px rgba(35, 27, 21, 0.08)",
+                              display: "flex",
+                              flexDirection: "column",
+                              justifyContent: "space-between",
+                              padding: 6,
+                              fontWeight: "bold",
+                              color: isRed ? "#c92a2a" : theme.colors.text
+                            }}
+                          >
+                            <span style={{ fontSize: 12, textAlign: "left" }}>{rankLabel}</span>
+                            <span style={{ fontSize: 24, textAlign: "center", alignSelf: "center", margin: "-4px 0" }}>{suitSym}</span>
+                            <span style={{ fontSize: 12, textAlign: "right", transform: "rotate(180deg)" }}>{rankLabel}</span>
+                          </div>
+                          <span style={{ fontSize: 10, color: theme.colors.muted, fontWeight: 600 }}>
+                            {trickPlayer === 0 ? "You" : `AI ${trickPlayer}`}
+                          </span>
+                        </div>
+                      );
+                    })}
+                    {(!simObservation.current_trick || simObservation.current_trick.length === 0) && (
+                      <div style={{ fontSize: 13, color: theme.colors.muted, fontStyle: "italic", padding: 12 }}>
+                        No cards played in this trick yet.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+            {/* Bottom Panel: Interactive User Control Panel */}
+            <div
+              style={{
+                background: theme.colors.surfaceRaised,
+                borderTop: `1px solid ${theme.colors.border}`,
+                padding: "20px 24px",
+                display: "flex",
+                flexDirection: "column",
+                gap: 16
+              }}
+            >
+              {/* User's Hand (Always Visible) */}
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: theme.colors.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>
+                  Your Hand ({simObservation.hand?.length || 0} cards)
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {simObservation.hand?.map((card: [string, number], idx: number) => {
+                    const suit = card[0];
+                    const rank = card[1];
+                    
+                    // A card is playable if we are in playing/passing phase, it is our turn, and it is a legal move
+                    const isBidding = simObservation.phase === "bidding";
+                    const isOurTurn = simObservation.player_id === 0;
+                    const isLegal = !isBidding && isOurTurn && simObservation.legal_moves?.some(
+                      (lm: any) => lm[0] === suit && lm[1] === rank
+                    );
+
+                    const isRed = suit === "Hearts" || suit === "Diamonds";
+                    const suitSym = suit === "Spades" ? "♠" : suit === "Hearts" ? "♥" : suit === "Clubs" ? "♣" : suit === "Diamonds" ? "♦" : suit;
+                    const rankLabel = rank === 11 ? "J" : rank === 12 ? "Q" : rank === 13 ? "K" : rank === 14 ? "A" : rank.toString();
+
+                    return (
+                      <button
+                        key={idx}
+                        disabled={isBidding || !isLegal || simIsLoading}
+                        onClick={() => handleSimPlayCard(card)}
+                        style={{
+                          width: 60,
+                          height: 84,
+                          borderRadius: 8,
+                          background: "#ffffff",
+                          border: isLegal ? `2px solid ${theme.colors.accent}` : `1px solid ${theme.colors.border}`,
+                          boxShadow: isLegal ? "0 6px 12px rgba(177, 122, 75, 0.15)" : "0 2px 4px rgba(35, 27, 21, 0.05)",
+                          display: "flex",
+                          flexDirection: "column",
+                          justifyContent: "space-between",
+                          padding: 6,
+                          fontWeight: "bold",
+                          color: isRed ? "#c92a2a" : theme.colors.text,
+                          cursor: isLegal ? "pointer" : isBidding ? "default" : "not-allowed",
+                          opacity: (isBidding || isLegal) ? 1 : 0.45,
+                          transform: isLegal ? "translateY(-2px)" : "none",
+                          transition: "all 0.15s ease",
+                          pointerEvents: (isBidding || isLegal) ? "auto" : "none"
+                        }}
+                        onMouseEnter={(e) => {
+                          if (isLegal) {
+                            e.currentTarget.style.transform = "translateY(-5px)";
+                            e.currentTarget.style.borderColor = theme.colors.accent;
+                            e.currentTarget.style.boxShadow = "0 8px 16px rgba(177, 122, 75, 0.25)";
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (isLegal) {
+                            e.currentTarget.style.transform = "translateY(-2px)";
+                            e.currentTarget.style.borderColor = theme.colors.accent;
+                            e.currentTarget.style.boxShadow = "0 6px 12px rgba(177, 122, 75, 0.15)";
+                          }
+                        }}
+                      >
+                        <span style={{ fontSize: 13, textAlign: "left", display: "block" }}>{rankLabel}</span>
+                        <span style={{ fontSize: 26, textAlign: "center", alignSelf: "center", margin: "-6px 0" }}>{suitSym}</span>
+                        <span style={{ fontSize: 13, textAlign: "right", display: "block", transform: "rotate(180deg)" }}>{rankLabel}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Action Controls Section */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", minHeight: 44 }}>
+                {simObservation.phase === "bidding" && simObservation.player_id === 0 && (
+                  <div style={{ width: "100%" }}>
+                    <div style={{ fontSize: 12, marginBottom: 8, fontWeight: 700, color: theme.colors.accent, textTransform: "uppercase", letterSpacing: 1 }}>
+                      Your Turn to Bid: Select target trick count
+                    </div>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      {simObservation.legal_moves?.map((bid: number) => (
+                        <button
+                          key={bid}
+                          onClick={() => handleSimSubmitBid(bid)}
+                          style={{
+                            background: theme.colors.surfaceRaised,
+                            color: theme.colors.text,
+                            border: `1px solid ${theme.colors.border}`,
+                            borderRadius: 12,
+                            padding: "8px 16px",
+                            cursor: "pointer",
+                            fontWeight: "bold",
+                            fontSize: 13,
+                            transition: "all 0.15s ease",
+                            boxShadow: "0 2px 4px rgba(35, 27, 21, 0.04)"
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.borderColor = theme.colors.accent;
+                            e.currentTarget.style.background = theme.colors.surface;
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.borderColor = theme.colors.border;
+                            e.currentTarget.style.background = theme.colors.surfaceRaised;
+                          }}
+                        >
+                          Bid {bid}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {simObservation.phase === "completed" && !simObservation.done && (
+                  <div style={{ width: "100%", textAlign: "center" }}>
+                    <button
+                      onClick={handleSimNextRound}
+                      style={{
+                        background: theme.colors.accent,
+                        color: "#ffffff",
+                        border: "none",
+                        borderRadius: 14,
+                        padding: "10px 32px",
+                        cursor: "pointer",
+                        fontWeight: "bold",
+                        fontSize: 14,
+                        boxShadow: "0 4px 12px rgba(177, 122, 75, 0.2)"
+                      }}
+                    >
+                      Next Round
+                    </button>
+                  </div>
+                )}
+
+                {simObservation.player_id !== 0 && !simObservation.done && simObservation.phase !== "completed" && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, color: theme.colors.muted, fontSize: 13, fontWeight: 600 }}>
+                    <span className="animate-pulse">⏳</span> AI Agents are executing turns...
+                  </div>
+                )}
+
+                {simObservation.done && (
+                  (() => {
+                    const scores = simState?.cumulative_scores || {};
+                    const sortedPlayers = Object.entries(scores)
+                      .map(([pKey, score]) => ({
+                        pKey,
+                        score: score as number,
+                        name: pKey === "0" ? "You (Player 0)" : `AI Agent ${pKey}`
+                      }))
+                      .sort((a, b) => b.score - a.score);
+
+                    const highestScore = sortedPlayers[0]?.score;
+
+                    return (
+                      <div style={{ width: "100%", display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: theme.colors.accent, textAlign: "center", textTransform: "uppercase", letterSpacing: "1px" }}>
+                          Game Complete!
+                        </div>
+                        <div style={{ background: theme.colors.paper, padding: "16px 24px", borderRadius: 16, border: `1px solid ${theme.colors.border}`, width: "100%", maxWidth: 400 }}>
+                          <div style={{ fontSize: 16, fontWeight: 800, color: theme.colors.text, marginBottom: 12, textAlign: "center" }}>
+                            🏆 Final Scoreboard Standings
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                            {sortedPlayers.map((p) => {
+                              const isWinner = p.score === highestScore;
+                              return (
+                                <div
+                                  key={p.pKey}
+                                  style={{
+                                    display: "flex",
+                                    justifyContent: "space-between",
+                                    alignItems: "center",
+                                    padding: "8px 12px",
+                                    background: isWinner ? "rgba(177, 122, 75, 0.08)" : "transparent",
+                                    borderRadius: 10,
+                                    border: isWinner ? `1px solid ${theme.colors.accentSoft}` : "1px solid transparent",
+                                    fontWeight: isWinner ? "bold" : "normal"
+                                  }}
+                                >
+                                  <span>
+                                    {isWinner ? "👑 " : ""}{p.name}
+                                  </span>
+                                  <span style={{ fontWeight: 800 }}>{p.score} pts</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handlePlayGame(activeSimulationGame)}
+                          style={{
+                            background: theme.colors.accent,
+                            color: "#ffffff",
+                            border: "none",
+                            borderRadius: 12,
+                            padding: "10px 32px",
+                            cursor: "pointer",
+                            fontWeight: "bold",
+                            fontSize: 14,
+                            boxShadow: "0 4px 12px rgba(177, 122, 75, 0.2)"
+                          }}
+                        >
+                          Replay Preview
+                        </button>
+                      </div>
+                    );
+                  })()
+                )}
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

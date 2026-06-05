@@ -367,7 +367,7 @@ export default function StructuredEditorPage() {
   const buildGraphPayload = (targetConfig: GameConfig) => {
     const minP = targetConfig.player_count_min;
     const maxP = targetConfig.player_count_max;
-    const playerRangeStr = maxP ? `${minP}-${maxP}` : `${minP}+`;
+    const playerRangeStr = maxP && maxP !== minP ? `${minP}-${maxP}` : maxP === minP ? `${minP}` : `${minP}+`;
 
     const nodes = [
       {
@@ -561,8 +561,26 @@ graph_architecture:
     setIsSaving(true);
     const sessionId = getSessionId();
     const graphPayload = buildGraphPayload(config);
+    const newlyGeneratedYaml = generateYaml();
 
     try {
+      // Fetch existing games to check for duplicates
+      const listRes = await fetch(`${API}/api/games`);
+      if (listRes.ok) {
+        const existingGames = await listRes.json();
+        const duplicate = existingGames.find(
+          (g: any) => g.rulesYaml === newlyGeneratedYaml && g.id !== activeGameId
+        );
+        if (duplicate) {
+          toast.warning("Exact game exists", {
+            description: `A game with this identical configuration already exists: "${duplicate.title}" (ID: ${duplicate.id}).`,
+            duration: 6000
+          });
+          setIsSaving(false);
+          return;
+        }
+      }
+
       if (activeGameId) {
         // PUT updates existing game
         const res = await fetch(`${API}/api/games/${activeGameId}`, {
@@ -580,6 +598,7 @@ graph_architecture:
             playTimeMinutes: 30,
             needsPaperScorekeeping: false,
             status: trainingStatus,
+            rulesYaml: newlyGeneratedYaml,
           }),
         });
 
@@ -623,6 +642,7 @@ graph_architecture:
             tags: ["custom", "structured-editor"],
             isTextBased: false,
             graph: graphPayload,
+            rulesYaml: newlyGeneratedYaml,
           }),
         });
 
@@ -1040,8 +1060,13 @@ graph_architecture:
                     />
                   </div>
                   <span style={{ fontSize: 11, color: theme.colors.muted, marginTop: 4, display: "block" }}>
-                    Configured Range: {config.player_count_min}
-                    {config.player_count_max ? `-${config.player_count_max}` : "+"} players
+                    Configured Range: {
+                      config.player_count_max && config.player_count_max !== config.player_count_min
+                        ? `${config.player_count_min}–${config.player_count_max}`
+                        : config.player_count_max === config.player_count_min
+                        ? `${config.player_count_min}`
+                        : `${config.player_count_min}+`
+                    } players
                   </span>
                 </div>
               </div>

@@ -8,74 +8,7 @@ import random
 import time
 from env import TrickTakingEnv
 from models import MLPPolicy, LSTMPolicy, SimpleGNNPolicy, TransformerPolicy
-
-def get_heuristic_action(obs: dict) -> any:
-    """
-    A heuristic policy for trick-taking bidding and play (Judgement / Oh Hell)
-    inspired by the research work on JudgmentBot:
-    - Bidding: Calculates bids based on K, Q, A count + trump high cards.
-    - Play:
-      - If tricks_won < bid (goal not reached): play highest card that can win the trick.
-        If cannot win, discard the lowest card.
-      - If tricks_won == bid (goal reached): play highest card that still loses (sluffing high cards).
-        If forced to win, minimize winning card value.
-    """
-    legal_moves = obs["legal_moves"]
-    if obs["phase"] == "passing":
-        # Pass highest rank cards to minimize points / risk
-        return max(legal_moves, key=lambda c: (c[1], c[0]))
-        
-    if obs["phase"] == "bidding":
-        # Bid estimation: count high ranks (12=Q, 13=K, 14=A) + high trump cards
-        hand = obs["hand"]
-        trump = obs["trump_suit"]
-        bid = 0
-        for suit, rank in hand:
-            if rank >= 12:
-                bid += 1
-            elif trump and suit == trump and rank >= 10:
-                bid += 1
-        return min(bid, len(hand))
-        
-    # Playing Phase
-    player_id = obs["player_id"]
-    bid = obs["bids"].get(player_id, 0)
-    won = obs["tricks_won"].get(player_id, 0)
-    
-    current_trick = obs["current_trick"]
-    lead_suit = obs["lead_suit"]
-    trump_suit = obs["trump_suit"]
-    
-    def card_strength(card) -> int:
-        suit, rank = card
-        if trump_suit and suit == trump_suit:
-            return rank + 100
-        if lead_suit and suit == lead_suit:
-            return rank
-        if not lead_suit:
-            return rank  # if leading, strength is rank
-        return 0  # off-suit cards that aren't trump have 0 strength
-        
-    trick_strengths = [card_strength(c) for _, c in current_trick]
-    highest_trick_strength = max(trick_strengths) if trick_strengths else -1
-    
-    winning_cards = [c for c in legal_moves if card_strength(c) > highest_trick_strength]
-    losing_cards = [c for c in legal_moves if card_strength(c) <= highest_trick_strength]
-    
-    if won < bid:
-        # Wants to win the trick: play highest card that wins
-        if winning_cards:
-            return max(winning_cards, key=card_strength)
-        else:
-            # Cannot win: throw away lowest card to preserve high cards
-            return min(legal_moves, key=card_strength)
-    else:
-        # Wants to lose: play highest card that still loses (discarding high cards)
-        if losing_cards:
-            return max(losing_cards, key=card_strength)
-        else:
-            # Forced to win: play lowest card that wins to conserve higher cards
-            return min(winning_cards, key=card_strength)
+from heuristics import get_heuristic_action
 
 def preprocess_bidding_obs(obs: dict) -> torch.Tensor:
     """Preprocesses variables for bidding model input."""
@@ -385,7 +318,7 @@ def train(args):
                         env_logits = logits[i]
                         legal_moves = act_obs["legal_moves"]
                         legal_indices = [suits.index(s) * 13 + (r - 2) for s, r in legal_moves]
-                        masked_logits = torch.full_like(env_logits, -1e9)
+                        masked_logits = torch.full_like(env_logits, -float('inf'))
                         masked_logits[legal_indices] = env_logits[legal_indices]
                         probs = torch.softmax(masked_logits, dim=-1)
                         dist = torch.distributions.Categorical(probs)

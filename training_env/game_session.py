@@ -1,10 +1,8 @@
 import os
 import random
-import torch
 from typing import List, Tuple, Dict, Any
 from env import TrickTakingEnv
-from train import preprocess_playing_obs, get_heuristic_action
-from models import MLPPolicy, LSTMPolicy, SimpleGNNPolicy
+from heuristics import get_heuristic_action
 
 class GameSession:
     """
@@ -32,13 +30,20 @@ class GameSession:
         self.done = False
         
     def _load_model(self, model_path: str):
+        try:
+            import torch
+            from models import MLPPolicy, LSTMPolicy, SimpleGNNPolicy
+        except ImportError as e:
+            print(f"Warning: PyTorch or models not available, cannot load model: {e}", file=__import__('sys').stderr)
+            return
+
         if self.arch == "mlp":
             self.playing_policy = MLPPolicy(input_dim=112, action_dim=52, hidden_dim=self.hidden_dim)
         elif self.arch == "lstm":
             self.playing_policy = LSTMPolicy(input_dim=112, action_dim=52, hidden_dim=self.hidden_dim)
         elif self.arch == "gnn":
             self.playing_policy = SimpleGNNPolicy(num_nodes=120, node_dim=16, action_dim=52, hidden_dim=self.hidden_dim)
-            
+
         try:
             self.playing_policy.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
             self.playing_policy.eval()
@@ -124,7 +129,9 @@ class GameSession:
             name = f"AI Agent {player}"
             
             if self.playing_policy is not None:
-                # Use neural network model
+                # Use neural network model — torch is guaranteed available if playing_policy loaded
+                import torch
+                from train import preprocess_playing_obs
                 playing_obs = preprocess_playing_obs(self.obs)
                 with torch.no_grad():
                     if self.arch == "lstm":
@@ -139,7 +146,7 @@ class GameSession:
                         
                 legal_cards = self.obs["legal_moves"]
                 legal_indices = [suits.index(s) * 13 + (r - 2) for s, r in legal_cards]
-                masked_logits = torch.full_like(logits, -1e9)
+                masked_logits = torch.full_like(logits, -float('inf'))
                 masked_logits[legal_indices] = logits[legal_indices]
                 action_idx = torch.argmax(masked_logits).item()
                 action = (suits[action_idx // 13], (action_idx % 13) + 2)
@@ -150,11 +157,16 @@ class GameSession:
             logs.append(f"{name} plays: {action}")
             
         if self.env.phase == "completed":
-            # Round completed, accumulate scores
-            for p in range(self.env.num_players):
-                self.cumulative_scores[p] += self.env.scores[p]
+            self._handle_round_completed()
                 
         return logs
+
+    def _handle_round_completed(self):
+        """Helper to accumulate round scores and mark game done if final round."""
+        for p in range(self.env.num_players):
+            self.cumulative_scores[p] += self.env.scores[p]
+        if self.current_round_idx_of_game == len(self.round_indices) - 1:
+            self.done = True
 
     def human_play(self, card_idx: int) -> Tuple[bool, str]:
         """Plays the selected hand card index for the human."""
@@ -169,6 +181,8 @@ class GameSession:
             return False, "Illegal play! You must follow suit if possible."
             
         self.obs, reward, done, info = self.env.step(card)
+        if self.env.phase == "completed":
+            self._handle_round_completed()
         return True, f"You played: {card}"
 
     def next_round(self) -> bool:
@@ -178,3 +192,4 @@ class GameSession:
         self.current_round_idx_of_game += 1
         self.start_round()
         return True
+

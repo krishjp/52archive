@@ -33,7 +33,7 @@ export class ComputationalGameAI {
     let score = 0;
 
     // Terminal state scoring
-    if (state.phase === "terminal") {
+    if (state.phase === "terminal-condition") {
       const hands = state.zones.playerHands;
       const handCounts = Object.entries(hands).map(([pId, cards]) => ({
         pId,
@@ -77,7 +77,7 @@ export class ComputationalGameAI {
   ): { score: number; bestEdge: GameTransitionEdge | null } {
     
     // Base Case: depth limit or terminal node
-    if (depth === 0 || state.phase === "terminal") {
+    if (depth === 0 || state.phase === "terminal-condition") {
       return { score: this.evaluateState(state, playerId), bestEdge: null };
     }
 
@@ -195,7 +195,7 @@ export class ComputationalGameAI {
 
       // 2. Rollout / Simulation (using fast random play)
       let movesCount = 0;
-      while (tempState.phase !== "terminal" && movesCount < 100) {
+      while (tempState.phase !== "terminal-condition" && movesCount < 100) {
         const legal = generateLegalTransitions(tempState);
         if (legal.length === 0) break;
         const randomMove = legal[Math.floor(Math.random() * legal.length)];

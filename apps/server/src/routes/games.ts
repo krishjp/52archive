@@ -7,7 +7,7 @@ gamesRouter.post("/", async (req: Request, res: Response) => {
   const {
     id, title, subtitle, summary, minPlayers, maxPlayers,
     playTimeMinutes, difficulty, tags, needsPaperScorekeeping,
-    deckCount, graph, textRules, isTextBased,
+    deckCount, graph, textRules, isTextBased, rulesYaml,
   } = req.body;
 
   if (!id || !title || !summary) {
@@ -38,6 +38,7 @@ gamesRouter.post("/", async (req: Request, res: Response) => {
       featured: false,
       status: "draft",
       version: 1,
+      rules_yaml: rulesYaml ?? "",
       created_at: new Date(),
       updated_at: new Date()
     });
@@ -94,6 +95,7 @@ gamesRouter.get("/", async (_req: Request, res: Response) => {
         graph: latestVersion?.graph ?? { nodes: [], edges: [] },
         isTextBased: !latestVersion?.graph?.nodes?.length,
         textRules: !latestVersion?.graph?.nodes?.length ? (latestVersion?.graph?.textRules ?? "") : undefined,
+        rulesYaml: g.rules_yaml ?? "",
       });
     }
 

@@ -702,8 +702,11 @@ export default function TextGameAddPage() {
                   <div>
                     <span style={{ fontSize: 10, textTransform: "uppercase", color: theme.colors.muted }}>Players</span>
                     <div style={{ fontSize: 13, fontWeight: 700 }}>
-                      {config.player_count_min}
-                      {config.player_count_max ? `-${config.player_count_max}` : "+"}
+                      {config.player_count_max && config.player_count_max !== config.player_count_min
+                        ? `${config.player_count_min}–${config.player_count_max}`
+                        : config.player_count_max === config.player_count_min
+                        ? `${config.player_count_min}`
+                        : `${config.player_count_min}+`}
                     </div>
                   </div>
                   <div>
