@@ -76,7 +76,6 @@ npm run dev:clean
 | `/games` | Full catalog browser — click any card to open the detail panel |
 | `/editor` | Interactive game editor (rules schema form builder) |
 | `/add` | Create a new game entry |
-| `/judgement` | Dedicated Judgement game page |
 
 ## Editor Features (`/editor`)
 
