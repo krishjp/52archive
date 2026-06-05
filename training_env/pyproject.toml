@@ -1,0 +1,25 @@
+[project]
+name = "training-env"
+version = "1.0.0"
+description = "Trick-Taking Game RL Agent Training Simulator"
+dependencies = [
+    "torch",
+    "torchvision",
+    "torchaudio",
+    "matplotlib",
+    "pyyaml",
+    "numpy"
+]
+
+[project.optional-dependencies]
+xpu = [
+    "intel-extension-for-pytorch==2.8.10+xpu"
+]
+
+[[tool.uv.index]]
+name = "intel-xpu"
+url = "https://pytorch-extension.intel.com/release-whl/stable/xpu/us/"
+explicit = true
+
+[tool.uv.sources]
+intel-extension-for-pytorch = { index = "intel-xpu" }

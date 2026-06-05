@@ -125,12 +125,14 @@ def get_device() -> torch.device:
     # 1. Try Mac Metal (MPS)
     if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
         return torch.device("mps")
-    # 2. Try Intel XPU (IPEX)
+    # 2. Try Intel XPU (Natively or via IPEX)
+    if hasattr(torch, "xpu") and torch.xpu.is_available():
+        return torch.device("xpu")
     try:
         import intel_extension_for_pytorch as ipex
         if hasattr(torch, "xpu") and torch.xpu.is_available():
             return torch.device("xpu")
-    except ImportError:
+    except Exception:
         pass
     # 3. Try CUDA (Nvidia GPU)
     if torch.cuda.is_available():
