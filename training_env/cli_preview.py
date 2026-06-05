@@ -3,6 +3,11 @@ import sys
 import time
 import argparse
 from typing import Tuple
+
+# Reconfigure stdout to use UTF-8 to prevent UnicodeEncodeError on Windows
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 from game_session import GameSession
 
 def clear_screen():
@@ -86,6 +91,39 @@ def main():
     session.start_game(rounds_to_play_indices)
     
     while not session.done:
+        # Run AI passes if passing phase and it's AI turn
+        ai_pass_logs = session.execute_ai_passes()
+        for log in ai_pass_logs:
+            print(log)
+            time.sleep(0.5)
+            
+        # ── Passing Phase ──
+        if session.get_phase() == "passing":
+            # Must be human turn
+            already_passed = session.env.passed_cards[0]
+            clear_screen()
+            print_banner(session.env.title)
+            if already_passed:
+                print(f"Already selected to pass: {' '.join(format_card(c) for c in already_passed)}")
+            print(f"Your Hand:")
+            for idx, c in enumerate(session.obs["hand"]):
+                status = " (Selected to pass)" if c in already_passed else ""
+                print(f"  [{idx}] {format_card(c)}{status}")
+                
+            print(f"\nYour turn to pass cards. Select card {len(already_passed) + 1} of {session.env.passing_count}.")
+            while True:
+                try:
+                    choice = int(input(f"Select card index to pass: "))
+                    success, msg = session.human_pass(choice)
+                    if success:
+                        print(msg)
+                        time.sleep(0.5)
+                        break
+                except ValueError:
+                    pass
+                print("Invalid card selection.")
+            continue
+
         # Run AI bids if bidding phase and it's AI turn
         ai_bid_logs = session.execute_ai_bids()
         for log in ai_bid_logs:
@@ -110,11 +148,17 @@ def main():
             continue
             
         # If we just locked in bids
-        if session.env.tricks_played == 0 and len(session.env.current_trick) == 0 and session.get_phase() == "playing":
+        if session.env.tricks_played == 0 and len(session.env.current_trick) == 0 and session.get_phase() == "playing" and session.env.bidding_required:
             print("\nAll bids locked in!")
             for p, b in session.env.bids.items():
                 name = "You" if p == 0 else f"AI Agent {p}"
                 print(f" - {name}: Bid {b} tricks")
+            print("\nPress Enter to start playing tricks...")
+            input()
+            
+        # If we just finished passing and are starting play directly (no bidding)
+        if session.env.tricks_played == 0 and len(session.env.current_trick) == 0 and session.get_phase() == "playing" and session.env.passing and not session.env.bidding_required:
+            print("\nCard passing completed! Hands have been rotated.")
             print("\nPress Enter to start playing tricks...")
             input()
             
@@ -133,7 +177,10 @@ def main():
             print("ROUND TALLY STATUS:")
             for p in range(session.env.num_players):
                 name = "You" if p == 0 else f"AI Agent {p}"
-                print(f" - {name}: Bid {session.env.bids[p]} | Tricks Won: {session.env.tricks_won[p]}")
+                if session.env.bidding_required:
+                    print(f" - {name}: Bid {session.env.bids[p]} | Tricks Won: {session.env.tricks_won[p]}")
+                else:
+                    print(f" - {name}: Tricks Won: {session.env.tricks_won[p]} | Point Cards: {session.env.round_card_points[p]}")
             print("-" * 40)
             
             # Display current trick pile
@@ -173,11 +220,16 @@ def main():
             print("=" * 70)
             for p in range(session.env.num_players):
                 name = "You" if p == 0 else f"AI Agent {p}"
-                bid = session.env.bids[p]
-                won = session.env.tricks_won[p]
                 r_score = session.env.scores[p]
-                status = "MATCH!" if bid == won else "MISSED"
-                print(f"{name:15} | Bid: {bid} | Won: {won} | Result: {status:7} | Round Score: {r_score:3} pts | Cumulative: {session.cumulative_scores[p]:3} pts")
+                if session.env.bidding_required:
+                    bid = session.env.bids[p]
+                    won = session.env.tricks_won[p]
+                    status = "MATCH!" if bid == won else "MISSED"
+                    print(f"{name:15} | Bid: {bid} | Won: {won} | Result: {status:7} | Round Score: {r_score:3} pts | Cumulative: {session.cumulative_scores[p]:3} pts")
+                else:
+                    won = session.env.tricks_won[p]
+                    pts = session.env.round_card_points[p]
+                    print(f"{name:15} | Tricks Won: {won:2} | Point Cards: {pts:3} | Round Score: {r_score:3} pts | Cumulative: {session.cumulative_scores[p]:3} pts")
             print("=" * 70)
             
             if round_idx != rounds_to_play_indices[-1]:

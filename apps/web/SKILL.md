@@ -10,37 +10,42 @@ tags:
   - visual-editor
 ---
 
-# Web Graph Editor
+# Web Game Editor
 
 ## Overview
-This skill details Next.js frontend visuals, pointer-event zoom/pan canvas gestures, custom hierarchical layouts, and SVG path connection rendering mechanics.
+This skill details Next.js frontend interfaces, rule presets, structured configuration form inputs, and validation mapping to the YAML schema parsed by the backend and Python training environment.
+
+## Preset Configurations
+Presets are loaded dynamically and mapped to the `GameConfig` schema. Common presets include:
+- Spades
+- Oh Hell
+- Whist
+- Judgement
+
+## Key State Properties
+Managed in the editor component:
+- `config`: the active `GameConfig` state representing deck size, player counts, bidding constraints, lead restrictions, follow suit policies, trump mechanics, scoring rules, passing policies, and terminal criteria.
+- `lockState`: session-based edit locking status.
 
 ## When to Use
 Use when:
-- Editing canvas interaction hooks or state elements in `app/editor/page.tsx`.
-- Modifying SVG path layout coordinates, pyramid branching styles, or node dragging events.
-- Creating sidebar controls for node additions or properties.
+- Modifying game rules schema form inputs, preset objects, or layout elements in [page.tsx](app/editor/page.tsx).
+- Updating config state validation logic or parsing for YAML output.
+- Adjusting CSS styles or UI elements for the warm paper editorial visual theme.
 
 ## Instructions
-1. **Handle Zoom/Pan Coordinates**:
-   - Update `panOffset` state on pointer move if pointer is down.
-   - Scale canvas zoom factor using wheel listener intercepting `ctrlKey`.
-2. **Reposition Dragged Nodes**:
-   - On node drag start, register global document event listeners to track screen delta movements.
-   - Adjust `node.x` and `node.y` offset states.
-3. **Render Connector Path Geometry**:
-   - Generate SVG Bézier curves from source node to target node centers.
-   - Scale curves horizontally depending on separation delta.
+1. **Manage Game Configurations**:
+   Ensure form inputs correctly update corresponding nested values in the state.
+2. **Handle Lock Status**:
+   Check if the editor is locked by another session before allowing updates or saving.
+3. **YAML Schema Consistency**:
+   Verify that generated YAML outputs conform to the schema required by the core package.
 
 ## Output Format
-- UI elements: Rendered React/JSX elements inside SVGs.
-- Graph models: Exported RuleGraph JSON objects.
+- UI elements: Interactive React/JSX input controls.
+- Rule models: Generated configuration YAML structure.
 
-## Examples
-### Connection Path Calculation
-```typescript
-const d = `M ${x1},${y1} C ${x1 + 50},${y1} ${x2 - 50},${y2} ${x2},${y2}`;
-```
 
 ## Notes
 - Rely on pointer events instead of mouse events for native mobile/tablet touch gesture compatibility.
+

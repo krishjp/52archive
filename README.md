@@ -2,28 +2,69 @@
 
 Deck-only card game archive for web and iOS. A graph-based game design tool and browseable catalog for rule-set authors.
 
+## Architecture
+
+```mermaid
+graph TD
+    subgraph Applications
+        Web["Next.js Web App<br>(apps/web)"]
+        Mobile["Expo Mobile App<br>(apps/mobile)"]
+        Server["Express API Server<br>(apps/server)"]
+    end
+
+    subgraph Shared Packages
+        Core["Core Rule Engine<br>(packages/core)"]
+        UI["UI Design System<br>(packages/ui)"]
+    end
+
+    subgraph Data Layer
+        DB[(PostgreSQL Database)]
+    end
+
+    subgraph Python Environment
+        RL["RL Training Env<br>(training_env)"]
+    end
+
+    Web --> Core
+    Web --> UI
+    Web --> Server
+    Mobile --> Server
+    Server --> DB
+    Core --> DB
+    RL -.-> Core
+```
+
 ## Structure
 
 | Path | Description |
 |---|---|
-| `apps/web` | Next.js archive experience, catalog browser, and interactive game editor |
-| `apps/mobile` | Expo iOS app (scaffold only) |
-| `packages/core` | Shared rule-graph engine, content model, DB client, CLI tools |
-| `packages/ui` | Shared design tokens and visual theme |
+| [apps/web](apps/web) | Next.js archive experience, catalog browser, and interactive game editor |
+| [apps/server](apps/server) | Express + Socket.io API backend for persistence and collaborative locks |
+| [apps/mobile](apps/mobile) | Expo iOS app (scaffold only) |
+| [packages/core](packages/core) | Shared rule-graph engine, content model, DB client, CLI tools |
+| [packages/ui](packages/ui) | Shared design tokens and visual theme |
+| [training_env](training_env) | Python-based reinforcement learning game training environment |
 
 ## Getting Started
 
+Follow these steps to spin up the local development workspace:
+
 ```bash
-# 1. Start the Postgres database
+# 1. Start the Postgres database container
 docker compose up -d db
 
 # 2. Install workspace dependencies
 npm install
 
-# 3. Start the web app (http://localhost:3000)
-npm run dev:web
+# 3. Start the Express API backend server
+npm run dev:server
 
-# — or — start with a fresh Next.js build cache
+# 4. Start the Next.js web application
+npm run dev:web
+```
+
+To clean the Next.js build cache and restart the web app:
+```bash
 npm run dev:clean
 ```
 
@@ -33,41 +74,27 @@ npm run dev:clean
 |---|---|
 | `/` | Archive home page |
 | `/games` | Full catalog browser — click any card to open the detail panel |
-| `/editor` | Interactive game editor (graph or text mode) |
+| `/editor` | Interactive game editor (rules schema form builder) |
 | `/add` | Create a new game entry |
 | `/judgement` | Dedicated Judgement game page |
 
 ## Editor Features (`/editor`)
 
-The editor at `/editor` supports two authoring modes:
+The editor at `/editor` is a structured form-based game configuration builder. It is designed to construct valid rule sets matching the YAML schema parsed by both the web app and the reinforcement learning training pipeline.
 
-### Graph Mode
-Define games as branched flows (setup → turns → scoring → end):
+- **Presets**: Load preset game templates (such as Whist, Spades, Oh Hell, or Judgement) as a starting point.
+- **Rule Configurations**: Modify rules including player counts, distribution modes, bidding structures, card passing constraints, lead/follow rules, scoring types, and end-of-game conditions.
+- **Dynamic YAML Generation**: Real-time generation and preview of the game schema YAML.
+- **Locking System**: Session-based editing locks coordinate updates and prevent conflicting edits.
+- **Admin & Training Integration**: Save configurations to the Postgres database, requesting admin review. Approved configurations are used by the reinforcement learning pipeline to train agent models.
 
-- **Canvas controls**: click/touch-drag to pan · Ctrl/Cmd+scroll (or pinch) to zoom
-- **Nodes**: click to select and edit; drag to reposition
-- **Connections**: Bézier curves from node-to-node; pyramid-spread for branch layout
-- **Stage library**: Setup, Team creation, Player turns, Scoring, Game end, Branch
-- **Card actions**: On turn nodes — `place`, `swap`, `discard`, `draw`, `reveal`, `pass`
-- **Insert-after flow**: Select a node, then click a stage library button to insert after it (existing nodes shift right)
-- **Game title & metadata**: Set the name, player count, and scorekeeping mode before saving
+### Saving and Persistence
 
-### Text Mode
-Write plain-text rules with lightweight markdown:
-
-- Use `### Section Header` for bold section titles
-- All other lines render as paragraphs
-- Saved alongside the game ID in browser `localStorage`
-
-### Saving Games
-
-Both modes save to `localStorage` under the key `52archive_custom_games`. Saved games appear immediately in the `/games` catalog.
-
-> **Note:** `localStorage` is browser-scoped. Clearing browser data or using a different browser will lose custom games. For persistent storage, use the database CLI tools below.
+The web editor connects to the backend API server (`apps/server`) to persist game rules and configurations inside the Postgres database. For offline draft updates, state is also saved to `localStorage` under the key `52archive_custom_games`.
 
 ## Database
 
-The app runs on Postgres (via `docker-compose`).
+The app runs on Postgres (via `docker-compose.yml`).
 
 ### Schema
 
@@ -76,7 +103,7 @@ The app runs on Postgres (via `docker-compose`).
 | `games` | Public-facing game record (title, summary, metadata, moderation status) |
 | `game_versions` | Versioned rule graphs, stored as JSONB |
 
-Game lifecycle: `draft` → `pending_review` → `approved` (or `rejected`)
+Game lifecycle: `draft` -> `pending_review` -> `approved` (or `rejected`)
 
 ### CLI Tools
 
@@ -103,20 +130,15 @@ npm run db:push-yaml -- graph_definition.yaml
 npm run db:clear
 ```
 
-Deletes **all rows** from `game_versions` and `games`. Use this to wipe test data and start fresh.
-
-> **Browser localStorage** is not affected by this command. To also clear browser-saved custom games, run this in your browser DevTools console:
-> ```js
-> localStorage.removeItem("52archive_custom_games")
-> ```
-> Then refresh the page.
+Deletes all rows from `game_versions` and `games`. Use this to wipe test data and start fresh.
 
 ## npm Scripts
 
 | Script | Description |
 |---|---|
 | `npm run dev:web` | Start the Next.js dev server |
-| `npm run dev:clean` | Clear `.next` cache, then start dev server |
+| `npm run dev:server` | Start the Express API server |
+| `npm run dev:clean` | Clear Next.js cache, then start dev server |
 | `npm run dev:ios` | Start the Expo iOS app |
 | `npm run db:push-yaml -- <file>` | Push a YAML game definition to Postgres |
 | `npm run db:clear` | Wipe all games and versions from Postgres |
@@ -125,7 +147,7 @@ Deletes **all rows** from `game_versions` and `games`. Use this to wipe test dat
 
 ## YAML Game Definition Format
 
-See [`judgement_game.yaml`](judgement_game.yaml) and [`graph_definition.yaml`](graph_definition.yaml) for full examples.
+See [judgement_game.yaml](judgement_game.yaml) and [graph_definition.yaml](graph_definition.yaml) for full examples.
 
 Required top-level fields:
 
@@ -136,7 +158,7 @@ summary: One-line description
 minPlayers: 2
 maxPlayers: 6
 playTimeMinutes: 30
-difficulty: easy | moderate | hard
+difficulty: easy # easy, moderate, or hard
 tags: [classic, strategy]
 needsPaperScorekeeping: true
 deckCount: 1
@@ -156,7 +178,9 @@ graph:
       label: begin
 ```
 
-## Type Definitions (`packages/core/src/types.ts`)
+## Type Definitions
+
+Key definitions are located in [types.ts](packages/core/src/types.ts):
 
 ```typescript
 type GraphNode = {
@@ -195,17 +219,10 @@ type Game = {
 }
 ```
 
-## Sample Games
-
-| Game | File | Notes |
-|---|---|---|
-| Candlelit Rummy | `packages/core/src/sampleGames.ts` | Graph-based, built-in |
-| Judgement | `packages/core/src/judgement.ts` | Trick-taking + bidding, 2–6 players |
-
 ## Known Limitations
 
-- Custom games saved to `localStorage` only — no server-side persistence from the browser editor yet
-- No user authentication; all games are unowned
+- No user authentication; all games are currently unowned
 - Mobile app is a scaffold with no game-specific content
-- No undo/redo in the graph editor
-- No edge or node deletion in the graph editor UI
+- No undo/redo in the graph editor UI
+- No edge or node deletion directly within the graph editor UI (must edit JSON/YAML source)
+

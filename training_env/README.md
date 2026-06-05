@@ -4,33 +4,33 @@ This directory contains the reinforcement learning (RL) training pipeline and in
 
 ## Architecture & Code Map
 
-1. **`env.py`** ([env.py](file:///C:/Users/kpatel/Documents/sideRunners/52archive/training_env/env.py)):
+1. **[env.py](env.py)**:
    - A trick-taking and bidding simulator wrapper.
    - Loads rules (number of decks, players, bidding policies, trump selection constraints, scoring systems, and reward weights) dynamically from a YAML file.
    - Implements standardized step mechanics, card distribution, valid turn masking, and scoring tallies.
    - Fully supports 5 scoring rules: `exact_bid_only` (e.g., Oh Hell), `tricks_only`, `bid_matching_bonus`, `penalty_for_undertricks`, and `penalty_for_overtricks`.
 
-2. **`models.py`** ([models.py](file:///C:/Users/kpatel/Documents/sideRunners/52archive/training_env/models.py)):
+2. **[models.py](models.py)**:
    - Contains PyTorch neural network policy structures.
    - **`MLPPolicy`**: Simple feedforward network mapping flattened observations to action distributions.
    - **`LSTMPolicy`**: Sequence-aware recurrent policy capable of encoding the history of played cards, round bidding contexts, and teammate plays.
    - **`SimpleGNNPolicy`**: Represents cards, hand zones, and players as graph nodes with adjacency matrices representing gameplay associations.
 
-3. **`train.py`** ([train.py](file:///C:/Users/kpatel/Documents/sideRunners/52archive/training_env/train.py)):
+3. **[train.py](train.py)**:
    - CLI execution script to run policy training.
    - Allows fine-tuning parameters (learning rate, discount factor, hidden embedding dimensions) and switching neural network architectures (`mlp`, `lstm`, `gnn`).
    - Learns trick-taking tactics by playing against random agents and self-play models.
 
-4. **`cli_preview.py`** ([cli_preview.py](file:///C:/Users/kpatel/Documents/sideRunners/52archive/training_env/cli_preview.py)):
+4. **[cli_preview.py](cli_preview.py)**:
    - Interactive terminal-based application using the same environment logic.
    - Allows you to play hands of `Oh Hell` or `Judgement` in your console against automated neural/rule-based agents.
    - Supports range selection for skipping/selecting specific rounds (e.g., playing only `4-12`).
 
-5. **`game_session.py`** ([game_session.py](file:///C:/Users/kpatel/Documents/sideRunners/52archive/training_env/game_session.py)):
+5. **[game_session.py](game_session.py)**:
    - An abstraction controller wrapper designed to manage multi-round gameplay sessions, AI turns, scoring accumulations, and player moves.
    - Decoupled from console inputs, serving as the interface for both CLI execution and future Web API integrations.
 
-6. **`grid_search.py`** ([grid_search.py](file:///C:/Users/kpatel/Documents/sideRunners/52archive/training_env/grid_search.py)):
+6. **[grid_search.py](grid_search.py)**:
    - Hyperparameter optimization pipeline that trains agents over combinations of models, learning rates, reward structures, and hidden sizes, selecting the best model configuration.
 ---
 
@@ -74,7 +74,7 @@ Launch the terminal interface to play directly in the console.
 ```
 
 *   **Round Selection**: The CLI will ask you which rounds you want to play. You can choose a single number (e.g., `5` to play rounds 1 to 5) or a range of rounds (e.g., `4-12` to play rounds 4 to 12, skipping the first 3).
-*   **Trump Rotation**: In Oh Hell rules, the trump suit rotates sequentially (`Spades` ➔ `Diamonds` ➔ `Clubs` ➔ `Hearts` ➔ `Spades`...) each round.
+*   **Trump Rotation**: In Oh Hell rules, the trump suit rotates sequentially (`Spades` -> `Diamonds` -> `Clubs` -> `Hearts` -> `Spades`...) each round.
 *   **Scoring Rule (`exact_bid_only`)**: Under this rule, you only score points if you win the exact number of tricks you bid. If you miss your bid, you get 0 points.
 
 **Play against a loaded PyTorch model (`.pt`):**
@@ -90,7 +90,7 @@ You can run a search across combinations of architectures, learning rates, rewar
 .venv\Scripts\python.exe grid_search.py --clear_all --rules_yaml oh_hell.yaml --episodes 5000 --imitation_episodes 250 --archs "mlp,lstm" --lrs "0.01,0.001" --hidden_dims "64,128" --reward_modes "zero_sum" --workers 5
 ```
 
-*   **Concurrency (`--workers N`)**: Runs the hyperparameter optimization grid search concurrently using $N$ worker processes (e.g. 4 parallel threads). Output from parallel workers is automatically running in silent mode to avoid console log interleaving.
+*   **Concurrency (`--workers N`)**: Runs the hyperparameter optimization grid search concurrently using N worker processes (e.g. 5 parallel threads). Output from parallel workers is automatically running in silent mode to avoid console log interleaving.
 *   **Console Output**: Prints a sorted leaderboard of all completed runs based on the highest average reward achieved in the last 10% of RL episodes.
 *   **Consolidated Report**: Saves a CSV report (e.g., `grid_search_report_*.csv`) containing parameters, scores, training durations, and model filenames.
 *   **Best Model Auto-Caching**: Automatically copies the weights of the best performing configuration to `agent_model.pt` so you can immediately play against it in the preview CLI.
@@ -117,7 +117,3 @@ BEST COMBINATION SELECTED:
   Reward Mode:   zero_sum
   Late Performance Average: -1.44 points
 ======================================================================
-
-or .venv\Scripts\python.exe grid_search.py --clear_all --rules_yaml oh_hell.yaml --episodes 6000 --imitation_episodes 300 --archs "mlp,lstm" --lrs "0.001" --hidden_dims "128" --reward_modes "zero_sum,shaped" --workers 5
-
-or .venv\Scripts\python.exe grid_search.py --rules_yaml oh_hell.yaml --workers 5 --num_envs 8 --archs "mlp,lstm,transformer" --episodes 10000 --imitation_episodes 500

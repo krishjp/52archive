@@ -30,12 +30,17 @@ interface GameConfig {
   lead_restrictions: "any" | "no_trump_until_broken" | "no_hearts_first";
   follow_suit_constraint: string;
   trump_play_policy: "optional" | "must_trump_if_void" | "must_overtrump";
-  scoring_rule: "tricks_only" | "bid_matching_bonus" | "exact_bid_only" | "penalty_for_undertricks" | "penalty_for_overtricks";
+  scoring_rule: "tricks_only" | "card_points" | "bid_matching_bonus" | "exact_bid_only" | "penalty_for_undertricks" | "penalty_for_overtricks";
   base_points_per_trick: number;
   success_bonus: number;
   failure_penalty: number;
   terminal_condition: "rounds_completed" | "score_threshold_reached";
   terminal_threshold: number;
+  passing: boolean;
+  passing_count: number;
+  passing_sequence: string[];
+  scoring_goal: "maximize" | "minimize";
+  card_point_rules: { suit?: string; rank?: number | string; points: number; special?: string }[];
 }
 
 // Session Lock helpers
@@ -82,16 +87,21 @@ const PRESETS: Record<string, GameConfig & { desc: string; color: string }> = {
     failure_penalty: -10,
     terminal_condition: "score_threshold_reached",
     terminal_threshold: 500,
+    passing: false,
+    passing_count: 3,
+    passing_sequence: [],
+    scoring_goal: "maximize",
+    card_point_rules: [],
   },
   hearts: {
     name: "Hearts",
-    subtitle: "Avoid Red Cards & Queen of Spades",
+    subtitle: "Avoid Hearts & Queen of Spades",
     summary: "Avoid taking point cards (Hearts and Q♠) unless you try to shoot the moon.",
     desc: "An evasion game where you try to avoid taking tricks containing hearts or the Queen of Spades.",
     color: "#dc2626",
     deck_size: 52,
-    player_count_min: 3,
-    player_count_max: 7,
+    player_count_min: 4,
+    player_count_max: 4,
     team_structure: "singles",
     distribution_mode: "static",
     cards_per_player: 13,
@@ -108,44 +118,21 @@ const PRESETS: Record<string, GameConfig & { desc: string; color: string }> = {
     lead_restrictions: "no_hearts_first",
     follow_suit_constraint: "strict",
     trump_play_policy: "optional",
-    scoring_rule: "tricks_only",
+    scoring_rule: "card_points",
     base_points_per_trick: 0,
     success_bonus: 0,
     failure_penalty: 0,
     terminal_condition: "score_threshold_reached",
     terminal_threshold: 100,
-  },
-  euchre: {
-    name: "Euchre",
-    subtitle: "Short Deck Partner Action",
-    summary: "Fast 24-card deck play. Establish trump and win at least 3 tricks.",
-    desc: "A fast-paced 24-card deck game with dynamic trump naming.",
-    color: "#059669",
-    deck_size: 24,
-    player_count_min: 4,
-    player_count_max: 4,
-    team_structure: "fixed_partnerships",
-    distribution_mode: "static",
-    cards_per_player: 5,
-    deal_sequence: [],
-    kitty_size: 4,
-    trump_mode: "top_card_reveal",
-    rotation_sequence: [],
-    fallback_suit: "no_trump",
-    bidding_required: true,
-    bidding_order: "sequential_clockwise",
-    bid_min: 3,
-    bid_max: "5",
-    hook_rule: false,
-    lead_restrictions: "any",
-    follow_suit_constraint: "strict",
-    trump_play_policy: "optional",
-    scoring_rule: "bid_matching_bonus",
-    base_points_per_trick: 1,
-    success_bonus: 2,
-    failure_penalty: -2,
-    terminal_condition: "score_threshold_reached",
-    terminal_threshold: 10,
+    passing: true,
+    passing_count: 3,
+    passing_sequence: ["1", "-1", "2", "0"],
+    scoring_goal: "minimize",
+    card_point_rules: [
+      { suit: "Hearts", points: 1 },
+      { suit: "Spades", rank: 12, points: 13 },
+      { special: "shoot_the_moon", points: 26 }
+    ],
   },
   judgement: {
     name: "Judgement",
@@ -178,6 +165,11 @@ const PRESETS: Record<string, GameConfig & { desc: string; color: string }> = {
     failure_penalty: 0,
     terminal_condition: "rounds_completed",
     terminal_threshold: 19,
+    passing: false,
+    passing_count: 3,
+    passing_sequence: ["left", "right", "across", "none"],
+    scoring_goal: "maximize",
+    card_point_rules: [],
   },
 };
 
@@ -190,6 +182,17 @@ export default function StructuredEditorPage() {
   const [lockedBy, setLockedBy] = useState<string | null>(null);
   const [lockExpiresAt, setLockExpiresAt] = useState<string | null>(null);
   const [lockTimeLeft, setLockTimeLeft] = useState<string>("");
+  const [cardRulesText, setCardRulesText] = useState<string>("");
+  const [passingSeqText, setPassingSeqText] = useState<string>("");
+
+  useEffect(() => {
+    setCardRulesText(JSON.stringify(config.card_point_rules || [], null, 2));
+  }, [config.card_point_rules]);
+
+  useEffect(() => {
+    const seq = config.passing_sequence || [];
+    setPassingSeqText(seq.join(", "));
+  }, [config.passing_sequence]);
 
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isSaving, setIsSaving] = useState<boolean>(false);
@@ -277,6 +280,11 @@ export default function StructuredEditorPage() {
               failure_penalty: 0,
               terminal_condition: "rounds_completed",
               terminal_threshold: 10,
+              passing: false,
+              passing_count: 3,
+              passing_sequence: ["left", "right", "across", "none"],
+              scoring_goal: "maximize",
+              card_point_rules: [],
             });
           }
         })
@@ -447,6 +455,11 @@ export default function StructuredEditorPage() {
       return `[${arr.map((s) => `"${s}"`).join(", ")}]`;
     };
 
+    const formatCardPointRules = (rules: any[]) => {
+      if (!rules || rules.length === 0) return "[]";
+      return "\n" + rules.map(r => `          - suit: "${r.suit}"\n            points: ${r.points}${r.rank !== undefined && r.rank !== null ? `\n            rank: ${r.rank}` : ""}`).join("\n");
+    };
+
     const pMaxStr = config.player_count_max ? config.player_count_max.toString() : "null";
 
     return `schema_version: "2.0.0"
@@ -472,6 +485,14 @@ graph_architecture:
         deal_sequence: ${formatList(config.deal_sequence)}
         kitty_size: ${config.kitty_size}
       notes: "Configures observations state for initial cards."
+
+    - type: "Passing_Phase"
+      description: "Handles card passing before tricks start."
+      parameters:
+        enabled: ${config.passing}
+        passing_count: ${config.passing_count}
+        passing_sequence: ${formatStringList(config.passing_sequence)}
+      notes: "Rotates cards between players."
 
     - type: "Trump_Selection"
       description: "Determines trump suit mechanics."
@@ -516,6 +537,8 @@ graph_architecture:
         base_points_per_trick: ${config.base_points_per_trick}
         success_bonus: ${config.success_bonus}
         failure_penalty: ${config.failure_penalty}
+        scoring_goal: "${config.scoring_goal}"
+        card_point_rules: ${formatCardPointRules(config.card_point_rules)}
       notes: "The foundational feedback reward signal for training."
 
     - type: "Terminal_Condition"
@@ -852,9 +875,9 @@ graph_architecture:
             </h1>
           </div>
           <div style={{ display: "flex", gap: 10 }}>
-            <button className="btn btn-secondary" style={{ display: "flex", alignItems: "center", gap: 6 }} onClick={() => setShowHelpModal(true)}>
-              Parameters Guide
-            </button>
+            <a href="/editor/guide" target="_blank" rel="noopener noreferrer" className="btn btn-secondary" style={{ display: "flex", alignItems: "center", gap: 6, textDecoration: "none" }}>
+              Parameters Guide ↗
+            </a>
             <button className="btn btn-primary" onClick={() => handleSave("draft")} disabled={isSaving}>
               {isSaving ? "Saving..." : "Save Draft"}
             </button>
@@ -1095,6 +1118,87 @@ graph_architecture:
                   />
                 </div>
               )}
+
+              <div style={{ marginTop: 16, borderTop: "1px dashed rgba(35,27,21,0.06)", paddingTop: 16 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, alignItems: "center" }}>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label" style={{ display: "flex", alignItems: "center", cursor: "pointer", gap: 6 }}>
+                      <input
+                        type="checkbox"
+                        checked={config.passing}
+                        onChange={(e) => handleInputChange("passing", e.target.checked)}
+                      />
+                      Enable Card Passing
+                    </label>
+                  </div>
+                  {config.passing && (
+                    <>
+                      <div className="form-group" style={{ marginBottom: 0 }}>
+                        <label className="form-label">Passing Card Count</label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={10}
+                          className="form-input"
+                          value={config.passing_count}
+                          onChange={(e) => handleInputChange("passing_count", parseInt(e.target.value))}
+                        />
+                      </div>
+                      <div className="form-group" style={{ marginBottom: 0 }}>
+                        <label className="form-label">Passing Sequence</label>
+                        <input
+                          type="text"
+                          className="form-input"
+                          placeholder="e.g. 1, -1, 2, 0"
+                          value={passingSeqText}
+                          onChange={(e) => {
+                            const rawVal = e.target.value;
+                            // Block any character that is not a digit, minus sign, comma, or space
+                            const clean = rawVal.replace(/[^0-9\-\,\s]/g, "");
+
+                            // Extract numbers
+                            const numMatches = clean.match(/\-?\d+/g) || [];
+
+                            // Check if the user is in the middle of typing a separator or minus at the end
+                            let suffix = "";
+                            const cleanEndsWithMinus = clean.endsWith("-");
+                            const cleanEndsWithComma = clean.endsWith(",");
+                            const cleanEndsWithSpace = clean.endsWith(" ");
+
+                            if (cleanEndsWithMinus) {
+                              suffix = "-";
+                            } else if (cleanEndsWithComma) {
+                              suffix = ", ";
+                            } else if (cleanEndsWithSpace && clean.trim().length > 0) {
+                              suffix = ", ";
+                            }
+
+                            // Format into X, X, X
+                            let formatted = "";
+                            if (numMatches.length > 0) {
+                              formatted = `${numMatches.join(", ")}${suffix}`;
+                            } else if (suffix === "-") {
+                              formatted = "-";
+                            } else {
+                              formatted = "";
+                            }
+
+                            setPassingSeqText(formatted);
+
+                            // Parse the actual array of strings to update config
+                            const seq = numMatches;
+                            const isDifferent = seq.length !== config.passing_sequence.length ||
+                              seq.some((val, idx) => val !== config.passing_sequence[idx]);
+                            if (isDifferent) {
+                              handleInputChange("passing_sequence", seq);
+                            }
+                          }}
+                        />
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
             </div>
 
             {/* SECTION 3: TRUMP SELECTION */}
@@ -1242,6 +1346,7 @@ graph_architecture:
                   onChange={(e) => handleInputChange("scoring_rule", e.target.value)}
                 >
                   <option value="tricks_only">Tricks Only (points for every trick won)</option>
+                  <option value="card_points">Card Points (score point value of captured cards, e.g. Hearts)</option>
                   <option value="bid_matching_bonus">Bid Matching Bonus (points for won tricks + bonus if matched)</option>
                   <option value="exact_bid_only">Exact Bid Only (points only if bid is matched exactly, e.g. Oh Hell)</option>
                   <option value="penalty_for_undertricks">Penalty for Undertricks (bonus if matched, penalty per trick short)</option>
@@ -1276,6 +1381,43 @@ graph_architecture:
                     value={config.failure_penalty}
                     onChange={(e) => handleInputChange("failure_penalty", parseInt(e.target.value))}
                   />
+                </div>
+              </div>
+
+              <div style={{ marginTop: 16, borderTop: "1px dashed rgba(35,27,21,0.06)", paddingTop: 16, marginBottom: 16 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label">Scoring Goal</label>
+                    <select
+                      className="form-select"
+                      value={config.scoring_goal}
+                      onChange={(e) => handleInputChange("scoring_goal", e.target.value)}
+                    >
+                      <option value="maximize">Maximize (Accumulate high points)</option>
+                      <option value="minimize">Minimize (Avoid points, e.g. Hearts)</option>
+                    </select>
+                  </div>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label">Card Point Rules (JSON Array)</label>
+                    <textarea
+                      rows={3}
+                      className="form-input"
+                      style={{ fontFamily: "monospace", fontSize: 12 }}
+                      placeholder='[{"suit": "Hearts", "points": 1}, {"suit": "Spades", "rank": 12, "points": 13}]'
+                      value={cardRulesText}
+                      onChange={(e) => {
+                        setCardRulesText(e.target.value);
+                        try {
+                          const parsed = JSON.parse(e.target.value);
+                          if (Array.isArray(parsed)) {
+                            handleInputChange("card_point_rules", parsed);
+                          }
+                        } catch (err) {
+                          // Allow invalid json momentarily while typing
+                        }
+                      }}
+                    />
+                  </div>
                 </div>
               </div>
 

@@ -89,6 +89,31 @@ class GameSession:
         self.obs, reward, done, info = self.env.step(bid)
         return True, f"You bid: {bid} tricks."
 
+    def execute_ai_passes(self) -> List[str]:
+        """Runs AI passing turns sequentially until it is the human's turn or passing finishes."""
+        logs = []
+        while self.env.phase == "passing" and self.get_active_player() != 0:
+            player = self.get_active_player()
+            card = get_heuristic_action(self.obs)
+            self.obs, reward, done, info = self.env.step(card)
+            logs.append(f"AI Agent {player} selects card to pass: {card}.")
+        return logs
+
+    def human_pass(self, card_idx: int) -> Tuple[bool, str]:
+        """Processes human card choice to pass."""
+        if self.env.phase != "passing" or self.get_active_player() != 0:
+            return False, "Not passing phase or not your turn."
+            
+        if not (0 <= card_idx < len(self.obs["hand"])):
+            return False, "Invalid card index."
+            
+        card = self.obs["hand"][card_idx]
+        if card not in self.obs["legal_moves"]:
+            return False, "This card was already selected or is invalid."
+            
+        self.obs, reward, done, info = self.env.step(card)
+        return True, f"You chose to pass: {card}"
+
     def execute_ai_plays(self) -> List[str]:
         """Runs AI playing turns sequentially until it is the human's turn or the round completes."""
         logs = []

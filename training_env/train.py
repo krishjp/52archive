@@ -21,6 +21,10 @@ def get_heuristic_action(obs: dict) -> any:
         If forced to win, minimize winning card value.
     """
     legal_moves = obs["legal_moves"]
+    if obs["phase"] == "passing":
+        # Pass highest rank cards to minimize points / risk
+        return max(legal_moves, key=lambda c: (c[1], c[0]))
+        
     if obs["phase"] == "bidding":
         # Bid estimation: count high ranks (12=Q, 13=K, 14=A) + high trump cards
         hand = obs["hand"]
@@ -424,7 +428,9 @@ def train(args):
                 heuristic_action = get_heuristic_action(obs)
                 
                 if player_id == 0:
-                    if obs["phase"] == "bidding":
+                    if obs["phase"] == "passing":
+                        action = heuristic_action
+                    elif obs["phase"] == "bidding":
                         bidding_obs = preprocess_bidding_obs(obs).to(device)
                         optimizer_bid.zero_grad()
                         logits = bidding_policy(bidding_obs)
@@ -481,7 +487,9 @@ def train(args):
                 player_id = obs["player_id"]
                 
                 if player_id == 0:
-                    if obs["phase"] == "bidding":
+                    if obs["phase"] == "passing":
+                        action = get_heuristic_action(obs)
+                    elif obs["phase"] == "bidding":
                         bidding_obs = preprocess_bidding_obs(obs).to(device)
                         with torch.no_grad():
                             logits = bidding_policy(bidding_obs)
