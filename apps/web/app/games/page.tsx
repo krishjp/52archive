@@ -110,17 +110,25 @@ export default function GamesPage() {
   const [showSetupModal, setShowSetupModal] = useState(false);
   const [setupGame, setSetupGame] = useState<GameListing | null>(null);
   const [customRoundIndices, setCustomRoundIndices] = useState<string>("0");
+  const [activeRoundIndices, setActiveRoundIndices] = useState<number[]>([0]);
+  const [turnSelectionMode, setTurnSelectionMode] = useState<string>("rotating");
 
-  const handlePlayGame = async (game: GameListing, roundIndices?: number[]) => {
+  const handlePlayGame = async (game: GameListing, roundIndices?: number[], turnMode?: string) => {
     setActiveSimulationGame(game);
     setSimIsLoading(true);
     setSimLogs([]);
+    const selectedIndices = roundIndices || activeRoundIndices;
+    const selectedTurnMode = turnMode || turnSelectionMode;
+    setActiveRoundIndices(selectedIndices);
+    setTurnSelectionMode(selectedTurnMode);
+
     try {
       const res = await fetch(`${API}/api/games/${game.id}/simulate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          roundIndices: roundIndices || [0]
+          roundIndices: selectedIndices,
+          turnSelectionMode: selectedTurnMode
         }),
       });
       if (!res.ok) {
@@ -829,7 +837,6 @@ export default function GamesPage() {
               <button
                 onClick={() => {
                   setSetupGame(selectedGame);
-                  setCustomRoundIndices("0, 1, 2");
                   setShowSetupModal(true);
                 }}
                 style={{
@@ -967,6 +974,31 @@ export default function GamesPage() {
               </span>
             </div>
 
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <label htmlFor="turn-mode-input" style={{ fontSize: 12, fontWeight: 700, color: theme.colors.text, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                Starting Player / Lead Rotation Rule:
+              </label>
+              <select
+                id="turn-mode-input"
+                value={turnSelectionMode}
+                onChange={(e) => setTurnSelectionMode(e.target.value)}
+                style={{
+                  background: theme.colors.surfaceRaised,
+                  border: `1px solid ${theme.colors.border}`,
+                  borderRadius: 14,
+                  padding: "12px 16px",
+                  fontSize: 14,
+                  color: theme.colors.text,
+                  outline: "none",
+                  cursor: "pointer"
+                }}
+              >
+                <option value="rotating">Rotating Dealer (Standard)</option>
+                <option value="most_points">Player with Most Cumulative Points Leads</option>
+                <option value="least_points">Player with Least Cumulative Points Leads</option>
+              </select>
+            </div>
+
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 12, marginTop: 8 }}>
               <button
                 onClick={() => setShowSetupModal(false)}
@@ -996,7 +1028,7 @@ export default function GamesPage() {
                   }
                   
                   setShowSetupModal(false);
-                  handlePlayGame(setupGame!, parsed);
+                  handlePlayGame(setupGame!, parsed, turnSelectionMode);
                 }}
                 style={{
                   background: theme.colors.accent,
@@ -1487,7 +1519,7 @@ export default function GamesPage() {
                           </div>
                         </div>
                         <button
-                          onClick={() => handlePlayGame(activeSimulationGame)}
+                          onClick={() => handlePlayGame(activeSimulationGame!, activeRoundIndices, turnSelectionMode)}
                           style={{
                             background: theme.colors.accent,
                             color: "#ffffff",

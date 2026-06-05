@@ -20,15 +20,23 @@ def run():
         temp_yaml_path = f.name
         
     try:
-        session = GameSession(temp_yaml_path, model_path=model_path, arch=arch, hidden_dim=hidden_dim)
-        
         # Load state if provided
         state = data.get("state")
+        
+        turn_mode = "rotating"
+        if state:
+            turn_mode = state.get("turn_selection_mode", "rotating")
+        else:
+            turn_mode = data.get("turn_selection_mode", "rotating")
+
+        session = GameSession(temp_yaml_path, model_path=model_path, arch=arch, hidden_dim=hidden_dim, turn_selection_mode=turn_mode)
+        
         if state:
             session.round_indices = state["round_indices"]
             session.current_round_idx_of_game = state["current_round_idx_of_game"]
             session.cumulative_scores = {int(k): v for k, v in state["cumulative_scores"].items()}
             session.done = state["done"]
+            session.turn_selection_mode = state.get("turn_selection_mode", "rotating")
             
             # Load env state
             env_state = state["env_state"]
@@ -118,6 +126,7 @@ def run():
             "current_round_idx_of_game": session.current_round_idx_of_game,
             "cumulative_scores": {str(k): v for k, v in session.cumulative_scores.items()},
             "done": session.done,
+            "turn_selection_mode": session.turn_selection_mode,
             "env_state": {
                 "hands": {str(k): v for k, v in session.env.hands.items()},
                 "tricks_won": {str(k): v for k, v in session.env.tricks_won.items()},

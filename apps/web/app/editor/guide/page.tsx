@@ -114,6 +114,18 @@ export default function GuidePage() {
           type: "Number",
           description: "The number of cards set aside in the center (blind/kitty) during dealing. Often picked up by the highest bidder.",
           example: "4"
+        },
+        {
+          name: "Starting Player Rotation Rule",
+          key: "turn_selection_mode",
+          type: "Select",
+          description: "Defines the rule used to determine who starts bidding and leads the first trick of each round.",
+          values: [
+            "rotating: Standard rotating dealer sequence.",
+            "most_points: The player with the highest cumulative score starts.",
+            "least_points: The player with the lowest cumulative score starts."
+          ],
+          example: "rotating"
         }
       ]
     },

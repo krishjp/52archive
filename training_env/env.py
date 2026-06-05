@@ -41,6 +41,7 @@ class TrickTakingEnv:
             deal_phase = blocks.get("Deal_Phase", {})
             self.cards_per_player = deal_phase.get("cards_per_player", 10)
             self.deal_sequence = deal_phase.get("deal_sequence", [10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+            self.turn_selection_mode = deal_phase.get("turn_selection_mode", "rotating")
             
             # Scoring & Mechanics
             scoring = blocks.get("Scoring_Phase", {})
@@ -73,6 +74,7 @@ class TrickTakingEnv:
             self.scoring_type = mechanics.get("scoringType", "bid_matching")
             self.fallback_suit = mechanics.get("fallbackSuit", "no_trump")
             self.rotation_sequence = mechanics.get("rotationSequence", [])
+            self.turn_selection_mode = mechanics.get("turnSelectionMode", "rotating")
             self.base_points_per_trick = 10
             self.success_bonus = 10
             self.failure_penalty = 0
@@ -125,7 +127,7 @@ class TrickTakingEnv:
         
         self.reset()
 
-    def reset(self, cards_per_player: int = None, round_idx: int = None) -> Dict[str, Any]:
+    def reset(self, cards_per_player: int = None, round_idx: int = None, starting_player: int = 0) -> Dict[str, Any]:
         """Resets the environment for a new round/game."""
         self.hands = {p: [] for p in range(self.num_players)}
         self.tricks_won = {p: 0 for p in range(self.num_players)}
@@ -135,6 +137,7 @@ class TrickTakingEnv:
         self.accumulated_rewards = {p: 0.0 for p in range(self.num_players)}
         self.passed_cards = {p: [] for p in range(self.num_players)}
         self.round_idx = round_idx if round_idx is not None else 0
+        self.starting_player = starting_player
         
         # Shuffle and Deal
         shuffled_deck = list(self.deck)
@@ -178,8 +181,8 @@ class TrickTakingEnv:
             
         self.current_trick = [] # List of (player_id, card)
         self.lead_suit = None
-        self.current_turn = 0
-        self.trick_leader = 0
+        self.current_turn = starting_player
+        self.trick_leader = starting_player
         
         # Determine initial phase based on passing and bidding settings
         direction = self.passing_sequence[self.round_idx % len(self.passing_sequence)]
@@ -255,7 +258,7 @@ class TrickTakingEnv:
             all_done = all(len(self.passed_cards[p]) == self.passing_count for p in range(self.num_players))
             if all_done:
                 self._execute_passing()
-                self.current_turn = 0
+                self.current_turn = getattr(self, "starting_player", 0)
                 if self.bidding_required:
                     self.phase = "bidding"
                 else:
@@ -265,7 +268,7 @@ class TrickTakingEnv:
         if self.phase == "bidding":
             self.bids[player] = int(action)
             self.current_turn = (self.current_turn + 1) % self.num_players
-            if self.current_turn == 0:
+            if len(self.bids) == self.num_players:
                 self.phase = "playing"
             return self._get_obs(self.current_turn), 0.0, done, {}
             

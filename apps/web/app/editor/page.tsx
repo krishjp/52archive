@@ -41,6 +41,7 @@ interface GameConfig {
   passing_sequence: string[];
   scoring_goal: "maximize" | "minimize";
   card_point_rules: { suit?: string; rank?: number | string; points: number; special?: string }[];
+  turn_selection_mode?: string;
 }
 
 // Session Lock helpers
@@ -484,6 +485,7 @@ graph_architecture:
         cards_per_player: ${config.cards_per_player}
         deal_sequence: ${formatList(config.deal_sequence)}
         kitty_size: ${config.kitty_size}
+        turn_selection_mode: "${config.turn_selection_mode || "rotating"}"
       notes: "Configures observations state for initial cards."
 
     - type: "Passing_Phase"
@@ -1089,7 +1091,7 @@ graph_architecture:
               <h3 style={{ fontSize: 14, borderBottom: "1.5px solid rgba(35,27,21,0.06)", paddingBottom: 6, marginBottom: 14, fontWeight: 700, letterSpacing: 0.5 }}>
                 2. Deal Phase
               </h3>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
                 <div className="form-group">
                   <label className="form-label">Distribution Mode</label>
                   <select
@@ -1110,6 +1112,18 @@ graph_architecture:
                     value={config.kitty_size}
                     onChange={(e) => handleInputChange("kitty_size", parseInt(e.target.value))}
                   />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Starting Player Rotation</label>
+                  <select
+                    className="form-select"
+                    value={config.turn_selection_mode || "rotating"}
+                    onChange={(e) => handleInputChange("turn_selection_mode", e.target.value)}
+                  >
+                    <option value="rotating">Rotating Dealer</option>
+                    <option value="most_points">Player with Most Points</option>
+                    <option value="least_points">Player with Least Points</option>
+                  </select>
                 </div>
               </div>
 

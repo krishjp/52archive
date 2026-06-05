@@ -222,7 +222,7 @@ gameRouter.post("/model", async (req: Request, res: Response) => {
 
 gameRouter.post("/simulate", async (req: Request, res: Response) => {
   const id = req.params.id as string;
-  const { action, state, roundIndices } = req.body;
+  const { action, state, roundIndices, turnSelectionMode } = req.body;
 
   try {
     const gamesCol = await getCollection("games");
@@ -263,6 +263,9 @@ gameRouter.post("/simulate", async (req: Request, res: Response) => {
 
     if (roundIndices) {
       payload.round_indices = roundIndices;
+    }
+    if (turnSelectionMode) {
+      payload.turn_selection_mode = turnSelectionMode;
     }
 
     const simRes = await fetch(`${SIMULATION_API}/simulate`, {

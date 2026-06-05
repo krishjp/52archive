@@ -37,6 +37,11 @@ Use when:
    Use `grid_search.py` with the `--workers` and `--num_envs` parameters to run process pools.
 5. **Manage Dependencies via pyproject.toml**:
    Install standard cross-platform dependencies using `uv pip install -e .`. To include Intel GPU (XPU) support, run `uv pip install -e .[xpu]`.
+6. **Configure Starting Player / Rotation Rules**:
+   Specify turn selection modes when initializing sessions or running HTTP simulations. The system resolves starting player logic prior to bidding and playing:
+   - `rotating`: Default rotating dealer.
+   - `most_points`: Starts with the player who holds the highest cumulative score.
+   - `least_points`: Starts with the player who holds the lowest cumulative score.
 
 ## Output Format
 Always preserve the following outputs:

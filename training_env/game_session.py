@@ -10,7 +10,7 @@ class GameSession:
     Encapsulates all environment calls and AI decision making (heuristic or neural),
     providing a clean step-based API suitable for CLI play or Web UI backend routing.
     """
-    def __init__(self, rules_yaml: str, model_path: str = None, arch: str = "mlp", hidden_dim: int = 128):
+    def __init__(self, rules_yaml: str, model_path: str = None, arch: str = "mlp", hidden_dim: int = 128, turn_selection_mode: str = "rotating"):
         self.rules_yaml = rules_yaml
         self.env = TrickTakingEnv(rules_yaml)
         self.deal_sequence = getattr(self.env, "deal_sequence", [10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
@@ -20,6 +20,7 @@ class GameSession:
         self.hidden_dim = hidden_dim
         self.playing_policy = None
         self.hidden_states = {p: None for p in range(self.env.num_players)}
+        self.turn_selection_mode = turn_selection_mode
         
         if model_path and os.path.exists(model_path):
             self._load_model(model_path)
@@ -64,7 +65,15 @@ class GameSession:
             return
         round_idx = self.round_indices[self.current_round_idx_of_game]
         cards_in_round = self.deal_sequence[round_idx]
-        self.obs = self.env.reset(cards_per_player=cards_in_round, round_idx=round_idx)
+        # Determine starting player based on selection mode
+        if self.turn_selection_mode == "most_points":
+            starting_player = max(self.cumulative_scores.keys(), key=lambda p: self.cumulative_scores[p])
+        elif self.turn_selection_mode == "least_points":
+            starting_player = min(self.cumulative_scores.keys(), key=lambda p: self.cumulative_scores[p])
+        else:
+            starting_player = (round_idx) % self.env.num_players
+
+        self.obs = self.env.reset(cards_per_player=cards_in_round, round_idx=round_idx, starting_player=starting_player)
         self.hidden_states = {p: None for p in range(self.env.num_players)}
         
     def get_active_player(self) -> int:

@@ -29,6 +29,7 @@ This directory contains the reinforcement learning (RL) training pipeline and in
 5. **[game_session.py](game_session.py)**:
    - An abstraction controller wrapper designed to manage multi-round gameplay sessions, AI turns, scoring accumulations, and player moves.
    - Decoupled from console inputs, serving as the interface for both CLI execution and future Web API integrations.
+   - Supports `turn_selection_mode` configuration modes (`rotating`, `most_points`, `least_points`) to dynamically select the starting dealer, bidding lead, and play lead per round.
 
 6. **[grid_search.py](grid_search.py)**:
    - Hyperparameter optimization pipeline that trains agents over combinations of models, learning rates, reward structures, and hidden sizes, selecting the best model configuration.
