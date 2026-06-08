@@ -28,21 +28,21 @@ Endpoints are defined in [index.ts](src/index.ts):
 - `lock:released`: Emitted with `{ gameId }` when a lock is removed.
 - `game:saved`: Broadcasts `{ gameId }` on successful game updates.
 
-## Relational Schema (Postgres)
+## Database Collections (MongoDB)
 - **`games`**: Stores title, summary, players limit, difficulty, tags, and locking details.
-- **`game_versions`**: Stores versioned rule graph schemas (`JSONB`).
+- **`game_versions`**: Stores versioned rule graph schemas.
 
 ## When to Use
 Use when:
 - Adding REST API route endpoints in `src/routes/`.
-- Changing database queries, PostgreSQL transaction pools, or health checkers.
+- Changing database queries, MongoDB client connections, or health checkers.
 - Updating real-time WebSocket state handlers in `src/lib/socket.ts`.
 
 ## Instructions
 1. **Manage Game Versioning**:
-   On game state POST requests, construct transaction updates to insert new graph version entries in the `game_versions` history table.
+   On game state POST requests, perform insertions to store new graph version entries in the `game_versions` collection.
 2. **Handle Session Editing Locks**:
-   Verify session token and expiry timestamps before updating lock columns in the `games` table.
+   Verify session token and expiry timestamps before updating lock properties on the `games` collection.
 3. **Emit WebSocket Broadcasts**:
    - Broadcast lock updates (`lock:acquired` / `lock:released`) to all active dashboard connections.
 

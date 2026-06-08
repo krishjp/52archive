@@ -18,7 +18,7 @@ graph TD
     end
 
     subgraph Data Layer
-        DB[(PostgreSQL Database)]
+        DB[(MongoDB Database)]
     end
 
     subgraph Python Environment
@@ -50,7 +50,7 @@ graph TD
 Follow these steps to spin up the local development workspace:
 
 ```bash
-# 1. Start the Postgres database container
+# 1. Start the MongoDB database container
 docker compose up -d db
 
 # 2. Install workspace dependencies
@@ -85,22 +85,22 @@ The editor at `/editor` is a structured form-based game configuration builder. I
 - **Rule Configurations**: Modify rules including player counts, distribution modes, bidding structures, card passing constraints, lead/follow rules, scoring types, and end-of-game conditions.
 - **Dynamic YAML Generation**: Real-time generation and preview of the game schema YAML.
 - **Locking System**: Session-based editing locks coordinate updates and prevent conflicting edits.
-- **Admin & Training Integration**: Save configurations to the Postgres database, requesting admin review. Approved configurations are used by the reinforcement learning pipeline to train agent models.
+- **Admin & Training Integration**: Save configurations to the MongoDB database, requesting admin review. Approved configurations are used by the reinforcement learning pipeline to train agent models.
 
 ### Saving and Persistence
 
-The web editor connects to the backend API server (`apps/server`) to persist game rules and configurations inside the Postgres database. For offline draft updates, state is also saved to `localStorage` under the key `52archive_custom_games`.
+The web editor connects to the backend API server (`apps/server`) to persist game rules and configurations inside the MongoDB database. For offline draft updates, state is also saved to `localStorage` under the key `52archive_custom_games`.
 
 ## Database
 
-The app runs on Postgres (via `docker-compose.yml`).
+The app runs on MongoDB (via `docker-compose.yml`).
 
-### Schema
+### Collections
 
-| Table | Purpose |
+| Collection | Purpose |
 |---|---|
 | `games` | Public-facing game record (title, summary, metadata, moderation status) |
-| `game_versions` | Versioned rule graphs, stored as JSONB |
+| `game_versions` | Versioned rule graphs, stored as documents |
 
 Game lifecycle: `draft` -> `pending_review` -> `approved` (or `rejected`)
 
@@ -129,7 +129,7 @@ npm run db:push-yaml -- graph_definition.yaml
 npm run db:clear
 ```
 
-Deletes all rows from `game_versions` and `games`. Use this to wipe test data and start fresh.
+Deletes all rows/documents from `game_versions` and `games`. Use this to wipe test data and start fresh.
 
 ## npm Scripts
 
@@ -139,8 +139,8 @@ Deletes all rows from `game_versions` and `games`. Use this to wipe test data an
 | `npm run dev:server` | Start the Express API server |
 | `npm run dev:clean` | Clear Next.js cache, then start dev server |
 | `npm run dev:ios` | Start the Expo iOS app |
-| `npm run db:push-yaml -- <file>` | Push a YAML game definition to Postgres |
-| `npm run db:clear` | Wipe all games and versions from Postgres |
+| `npm run db:push-yaml -- <file>` | Push a YAML game definition to MongoDB |
+| `npm run db:clear` | Wipe all games and versions from MongoDB |
 | `npm run typecheck` | Run TypeScript checks across all workspaces |
 | `npm run lint` | Run lint across all workspaces |
 
@@ -182,40 +182,58 @@ graph:
 Key definitions are located in [types.ts](packages/core/src/types.ts):
 
 ```typescript
-type GraphNode = {
+export type GraphNodeKind =
+  | "deck-initialization"
+  | "deal-phase"
+  | "trump-selection"
+  | "bidding-phase"
+  | "trick-loop"
+  | "scoring-phase"
+  | "terminal-condition"
+  | "note";
+
+export type GraphNode = {
   id: string;
-  kind: string;       // setup | turn | score | end | branch | action
+  kind: GraphNodeKind;
   title: string;
   body: string;
   x: number;
   y: number;
-  stageKey?: string;
+  stageKey?: GraphNodeKind;
+  occurrence?: "once" | "per_round" | "per_turn" | "conditional";
+  actor?: "system" | "player" | "team" | "ai";
   aiHint?: string;
-}
+};
 
-type GraphEdge = {
+export type GraphEdge = {
   id: string;
   from: string;
   to: string;
   label?: string;
   condition?: string;
-}
+  branchType?: "sequential" | "choice" | "conditional" | "loop";
+};
 
-type Game = {
+export type RuleGraph = {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+};
+
+export type Game = {
   id: string;
   title: string;
-  subtitle?: string;
+  subtitle: string;
   summary: string;
   minPlayers: number;
   maxPlayers: number;
   playTimeMinutes: number;
-  difficulty: string;
-  tags: string[];
-  deckCount: number;
+  difficulty: "easy" | "moderate" | "advanced";
+  tags: GameTag[];
   needsPaperScorekeeping: boolean;
+  deckCount: 1 | 2;
   graph: RuleGraph;
   featured: boolean;
-}
+};
 ```
 
 ## Known Limitations

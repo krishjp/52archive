@@ -14,7 +14,7 @@ This directory contains the reinforcement learning (RL) training pipeline and in
    - Contains PyTorch neural network policy structures.
    - **`MLPPolicy`**: Simple feedforward network mapping flattened observations to action distributions.
    - **`LSTMPolicy`**: Sequence-aware recurrent policy capable of encoding the history of played cards, round bidding contexts, and teammate plays.
-   - **`SimpleGNNPolicy`**: Represents cards, hand zones, and players as graph nodes with adjacency matrices representing gameplay associations.
+    - **`SimpleGNNPolicy`**: Represents card values, suits, and players as graph nodes. Features an embedding vocabulary of 120 indices with message passing over 30 active indices (mock structure currently using identity adjacency matrices).
 
 3. **[train.py](train.py)**:
    - CLI execution script to run policy training.
@@ -37,12 +37,11 @@ This directory contains the reinforcement learning (RL) training pipeline and in
 
 ## How to Run & Train
 
-Ensure you have PyTorch and PyYAML installed in your virtual environment:
+Ensure you have dependencies installed in your virtual environment. Since we use `uv` for package management:
 
 ```bash
-# Activate virtual environment and install dependencies
-.venv\Scripts\activate
-pip install torch pyyaml matplotlib
+# Install dependencies including native PyTorch 2.6.0 with XPU/SYCL support
+uv pip install -e .
 ```
 
 ### 1. Training Agents
@@ -56,14 +55,14 @@ Run the training script, specifying the configuration YAML, training parameters,
 
 **Alternative commands:**
 ```bash
-# Train an LSTM agent on Judgement game rules
-.venv\Scripts\python.exe train.py --rules_yaml ../judgement_game.yaml --arch lstm --episodes 100 --lr 0.001
+# Train an LSTM agent on Oh Hell rules
+.venv\Scripts\python.exe train.py --rules_yaml oh_hell.yaml --arch lstm --episodes 1000 --lr 0.001
 
 # Train a Graph Neural Network (GNN) agent
-.venv\Scripts\python.exe train.py --rules_yaml ../judgement_game.yaml --arch gnn --episodes 500
+.venv\Scripts\python.exe train.py --rules_yaml oh_hell.yaml --arch gnn --episodes 500
 ```
 
-*   **`--clear_results`**: Add this flag if you wish to wipe any previous training runs sharing the exact same architecture, learning rate, and parameters.
+*   **`--clear_previous`**: Add this flag if you wish to wipe any previous training runs sharing the exact same architecture, learning rate, and parameters.
 
 ### 2. Playing the Game Preview
 
@@ -88,33 +87,14 @@ Specify the `.pt` file generated during training:
 You can run a search across combinations of architectures, learning rates, reward structures, and hidden layer dimensions:
 
 ```bash
-.venv\Scripts\python.exe grid_search.py --clear_all --rules_yaml oh_hell.yaml --episodes 5000 --imitation_episodes 250 --archs "mlp,lstm" --lrs "0.01,0.001" --hidden_dims "64,128" --reward_modes "zero_sum" --workers 5
+# Run grid search sequentially on GPU (Recommended for Intel XPU to avoid context conflicts)
+.venv\Scripts\python.exe grid_search.py --clear_all --rules_yaml oh_hell.yaml --workers 1 --num_envs 16 --episodes 1000 --imitation_episodes 250 --archs "mlp,lstm" --lrs "0.001" --hidden_dims "64,128" --reward_modes "zero_sum"
+
+# Run grid search concurrently on CPU (Use workers > 1 only if device is set to CPU)
+.venv\Scripts\python.exe grid_search.py --rules_yaml oh_hell.yaml --clear_all --workers 4 --num_envs 2 --episodes 500 --imitation_episodes 100 --archs "mlp,lstm" --reward_modes "zero_sum"
 ```
 
-*   **Concurrency (`--workers N`)**: Runs the hyperparameter optimization grid search concurrently using N worker processes (e.g. 5 parallel threads). Output from parallel workers is automatically running in silent mode to avoid console log interleaving.
+*   **Concurrency (`--workers N`)**: Runs the hyperparameter optimization grid search. **WARNING**: When XPU acceleration is enabled under Windows, setting `--workers > 1` triggers Level Zero context crashes. `grid_search.py` automatically detects XPU and overrides the worker count to `1` to prevent system/display crashes. Use `--num_envs` (vectorized environments) to achieve fast parallelized training on the GPU instead.
 *   **Console Output**: Prints a sorted leaderboard of all completed runs based on the highest average reward achieved in the last 10% of RL episodes.
 *   **Consolidated Report**: Saves a CSV report (e.g., `grid_search_report_*.csv`) containing parameters, scores, training durations, and model filenames.
 *   **Best Model Auto-Caching**: Automatically copies the weights of the best performing configuration to `agent_model.pt` so you can immediately play against it in the preview CLI.
-
-## Initial Testing Results
-======================================================================
- GRID TUNING SEARCH COMPLETE
- Consolidated report saved to: grid_search_report_1780612800.csv
-======================================================================
-ALL RUNS SUMMARY (Sorted by Best Late Performance):
- - Arch: lstm | LR: 0.00100 | Hidden: 128 | Mode: zero_sum | Late Avg Reward:  -1.4 | Avg Reward:  -3.3
- - Arch: lstm | LR: 0.01000 | Hidden:  64 | Mode: zero_sum | Late Avg Reward:  -1.5 | Avg Reward:  -3.4
- - Arch: lstm | LR: 0.01000 | Hidden: 128 | Mode: zero_sum | Late Avg Reward:  -2.3 | Avg Reward:  -3.8
- - Arch: mlp  | LR: 0.00100 | Hidden: 128 | Mode: zero_sum | Late Avg Reward:  -2.6 | Avg Reward:  -3.8
- - Arch: mlp  | LR: 0.00100 | Hidden:  64 | Mode: zero_sum | Late Avg Reward:  -2.8 | Avg Reward:  -4.0
- - Arch: mlp  | LR: 0.01000 | Hidden:  64 | Mode: zero_sum | Late Avg Reward:  -2.9 | Avg Reward:  -2.6
- - Arch: mlp  | LR: 0.01000 | Hidden: 128 | Mode: zero_sum | Late Avg Reward:  -4.2 | Avg Reward:  -5.0
- - Arch: lstm | LR: 0.00100 | Hidden:  64 | Mode: zero_sum | Late Avg Reward:  -7.1 | Avg Reward:  -5.0
-======================================================================
-BEST COMBINATION SELECTED:
-  Architecture:  lstm
-  Learning Rate: 0.001
-  Hidden Dim:    128
-  Reward Mode:   zero_sum
-  Late Performance Average: -1.44 points
-======================================================================
