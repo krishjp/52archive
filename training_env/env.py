@@ -398,11 +398,6 @@ class TrickTakingEnv:
         # Retrieve the accumulated rewards for the acting player since their last step
         reward_returned = self.accumulated_rewards[player]
         self.accumulated_rewards[player] = 0.0
-        
-        # If the game is done, append any remaining terminal rewards for player 0 so the agent receives them
-        if done and player != 0:
-            reward_returned += self.accumulated_rewards[0]
-            self.accumulated_rewards[0] = 0.0
 
         return self._get_obs(self.current_turn), reward_returned, done, {}
 

@@ -1,5 +1,10 @@
 import argparse
 import os
+
+# Set default device selector to hide integrated graphics and target dedicated Intel Arc GPU
+if "ONEAPI_DEVICE_SELECTOR" not in os.environ:
+    os.environ["ONEAPI_DEVICE_SELECTOR"] = "level_zero:0"
+
 import time
 import csv
 import itertools
@@ -21,6 +26,14 @@ class GridSearchNamespace:
         self.silent = kwargs.get("silent", False)
         self.run_id = kwargs.get("run_id", "")
         self.num_envs = kwargs.get("num_envs", 1)
+        
+        # PPO parameters
+        self.ppo_epochs = kwargs.get("ppo_epochs", 4)
+        self.clip_eps = kwargs.get("clip_eps", 0.2)
+        self.value_coef = kwargs.get("value_coef", 0.5)
+        self.entropy_coef = kwargs.get("entropy_coef", 0.01)
+        self.gae_lambda = kwargs.get("gae_lambda", 0.95)
+        self.mini_batch_size = kwargs.get("mini_batch_size", 64)
 
 def run_grid_worker(config_tuple):
     """Worker target function executed in separate parallel processes."""
@@ -82,6 +95,18 @@ def main():
     parser.add_argument("--clear_all", action="store_true", help="Clear all past model, report, and plot files from the directory before running")
     
     args = parser.parse_args()
+
+    # XPU Multi-process concurrency safety check to prevent Level Zero driver crashes
+    import torch
+    is_xpu = hasattr(torch, "xpu") and torch.xpu.is_available()
+    if is_xpu and args.workers > 1:
+        print("\n" + "!" * 80)
+        print(" WARNING: Intel XPU (GPU) acceleration is active and --workers > 1.")
+        print(" Running multiple parallel GPU processes under Windows/Level Zero will likely")
+        print(" cause driver context collisions, GPU hangs, and display crashes.")
+        print(" Automatically overriding --workers to 1 for safety.")
+        print("!" * 80 + "\n")
+        args.workers = 1
 
     # Clear all past training files if requested
     if args.clear_all:
