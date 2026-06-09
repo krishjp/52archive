@@ -37,7 +37,7 @@ class LSTMPolicy(nn.Module):
             
         emb = F.relu(self.fc_in(x))
         lstm_out, hidden = self.lstm(emb, hidden)
-        logits = self.fc_out(lstm_out[:, -1, :]) # Predict on the last output
+        logits = self.fc_out(F.relu(lstm_out[:, -1, :])) # Predict on the last output
         return logits, hidden
 
 

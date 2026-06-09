@@ -140,7 +140,13 @@ class TrickTakingEnv:
         self.round_card_points = {p: 0 for p in range(self.num_players)}
         self.accumulated_rewards = {p: 0.0 for p in range(self.num_players)}
         self.passed_cards = {p: [] for p in range(self.num_players)}
-        self.round_idx = round_idx if round_idx is not None else 0
+        if round_idx is not None:
+            self.round_idx = round_idx
+        else:
+            if hasattr(self, "deal_sequence") and self.deal_sequence:
+                self.round_idx = random.randint(0, len(self.deal_sequence) - 1)
+            else:
+                self.round_idx = 0
         self.starting_player = starting_player
         
         # Shuffle and Deal
@@ -151,10 +157,13 @@ class TrickTakingEnv:
         if cards_per_player is not None:
             self.cards_per_player = cards_per_player
         else:
-            if not hasattr(self, "cards_per_player") or self.cards_per_player is None:
-                self.cards_per_player = min(10, len(shuffled_deck) // self.num_players)
+            if hasattr(self, "deal_sequence") and self.deal_sequence:
+                seq_idx = self.round_idx % len(self.deal_sequence)
+                self.cards_per_player = self.deal_sequence[seq_idx]
             else:
-                self.cards_per_player = min(self.cards_per_player, len(shuffled_deck) // self.num_players)
+                if not hasattr(self, "cards_per_player") or self.cards_per_player is None:
+                    self.cards_per_player = min(10, len(shuffled_deck) // self.num_players)
+            self.cards_per_player = min(self.cards_per_player, len(shuffled_deck) // self.num_players)
                 
         for p in range(self.num_players):
             self.hands[p] = sorted(

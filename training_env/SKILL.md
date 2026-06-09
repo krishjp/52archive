@@ -1,7 +1,7 @@
 ---
 name: training-env
 description: Guides development, configuration, and execution of RL training loops and vectorized environments for trick-taking card games.
-version: 1.1.0
+version: 1.2.0
 author: krish-patel
 tags:
   - reinforcement-learning
@@ -29,7 +29,7 @@ Use when:
    Eagerly check hardware acceleration devices (MPS, XPU, CUDA) using `get_device()`.
 2. **Define Neural Architectures**:
    - `MLPPolicy`: Static state-action mapping.
-   - `LSTMPolicy`: Recurrent sequence tracking.
+   - `LSTMPolicy`: Recurrent sequence tracking. Now features a sequential ReLU activation layer following the LSTM output sequence to process non-linear features before projecting to action logits (`fc_out`).
    - `TransformerPolicy`: Attention-based sequence representation over history.
    - `SimpleGNNPolicy`: Message-passing node/edge graph configuration.
 3. **Run Vectorized Environments**:
@@ -40,8 +40,12 @@ Use when:
    Install and sync dependencies using `uv sync`. The project utilizes conditional platform dependencies to target native PyTorch `2.6.0+xpu` and associated SYCL runtime libraries only on Windows (`win32`), falling back to standard PyPI libraries on other platforms.
 6. **Direct Model Attachment**:
    Trained model weight files (`.pt`) can be directly uploaded and attached to the MongoDB database using `attach_model_direct.py`. The HTTP client `upload_model.py` is deprecated.
-7. **Bidding constraints (Hook Rule)**:
-   In trick-taking games like Oh Hell, when `restrictions.hook_rule` is active, the last bidder (dealer) of the round cannot bid a number of tricks that makes the total sum of all bids equal the round hand size. The environment dynamically restricts the dealer's legal bids.
+7. **Bidding Locks & Transition Mechanics**:
+   - In trick-taking games like Oh Hell, the bidding phase is fully sequential. The transition to the `"playing"` phase only happens after *all* players have submitted a bid, tracked via `self.players_bid = set()`.
+   - When `restrictions.hook_rule` is active, the last bidder (dealer) of the round cannot bid a number of tricks that makes the total sum of all bids equal the round hand size. The environment dynamically restricts the dealer's legal bids.
+8. **Dynamic Hand Sizes (deal_sequence)**:
+   - The environment supports dynamic hand sizing based on the configured `deal_sequence` (e.g. `[10, 9, 8, ...]`).
+   - If no specific `round_idx` is provided (such as during RL training), the environment randomly selects a round index from the sequence to expose the policy to all card count configurations.
 
 ## Output Format
 Always preserve the following outputs:
