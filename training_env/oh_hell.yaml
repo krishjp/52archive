@@ -8,7 +8,7 @@ graph_architecture:
       parameters:
         deck_size: 52
         player_count:
-          min: 5
+          min: 3
           max: 7
         team_structure: "singles"
       notes: "Base card count and partnerships for the RL agent structure."
@@ -17,10 +17,19 @@ graph_architecture:
       description: "Distributes cards to player hand zones."
       parameters:
         distribution_mode: "dynamic_sequence"
-        cards_per_player: 7
+        cards_per_player: 10
         deal_sequence: [7, 6, 5, 4, 3, 2, 1, 2, 3, 4, 5, 6, 7]
         kitty_size: 0
+        turn_selection_mode: "rotating"
       notes: "Configures observations state for initial cards."
+
+    - type: "Passing_Phase"
+      description: "Handles card passing before tricks start."
+      parameters:
+        enabled: false
+        passing_count: 3
+        passing_sequence: ["left", "right", "across", "none"]
+      notes: "Rotates cards between players."
 
     - type: "Trump_Selection"
       description: "Determines trump suit mechanics."
@@ -65,7 +74,9 @@ graph_architecture:
         base_points_per_trick: 1
         success_bonus: 10
         failure_penalty: 0
-      notes: "The foundational feedback reward signal for training. Under 'exact_bid_only', scores are only awarded when players match their bid exactly."
+        scoring_goal: "maximize"
+        card_point_rules: []
+      notes: "The foundational feedback reward signal for training."
 
     - type: "Terminal_Condition"
       description: "Evaluates terminal episode triggers."

@@ -3,12 +3,14 @@ name = "training-env"
 version = "1.0.0"
 description = "Trick-Taking Game RL Agent Training Simulator"
 dependencies = [
-    "torch>=2.5.0",
+    "torch==2.6.0+xpu; sys_platform == 'win32'",
+    "torch>=2.5.0; sys_platform != 'win32'",
     "torchvision",
     "torchaudio",
     "matplotlib",
     "pyyaml",
-    "numpy"
+    "numpy",
+    "pymongo"
 ]
 
 [[tool.uv.index]]
@@ -17,6 +19,12 @@ url = "https://download.pytorch.org/whl/xpu"
 explicit = true
 
 [tool.uv.sources]
-torch = { index = "pytorch-xpu" }
-torchvision = { index = "pytorch-xpu" }
-torchaudio = { index = "pytorch-xpu" }
+torch = [
+  { index = "pytorch-xpu", marker = "sys_platform == 'win32'" },
+]
+torchvision = [
+  { index = "pytorch-xpu", marker = "sys_platform == 'win32'" },
+]
+torchaudio = [
+  { index = "pytorch-xpu", marker = "sys_platform == 'win32'" },
+]

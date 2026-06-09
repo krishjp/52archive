@@ -98,3 +98,8 @@ You can run a search across combinations of architectures, learning rates, rewar
 *   **Console Output**: Prints a sorted leaderboard of all completed runs based on the highest average reward achieved in the last 10% of RL episodes.
 *   **Consolidated Report**: Saves a CSV report (e.g., `grid_search_report_*.csv`) containing parameters, scores, training durations, and model filenames.
 *   **Best Model Auto-Caching**: Automatically copies the weights of the best performing configuration to `agent_model.pt` so you can immediately play against it in the preview CLI.
+
+# Attaching a model to a game-id
+python attach_model_direct.py --game_id XXX-XXXX-XXXX --model_path XXXX --arch XXXX --hidden_dim XXX
+
+python attach_model_direct.py --mongo_uri "mongodb+srv://<username>:<password>@<cluster-url>/52archive?retryWrites=true&w=majority"

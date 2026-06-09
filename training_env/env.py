@@ -105,6 +105,8 @@ class TrickTakingEnv:
             self.passing_sequence = passing_block.get("passing_sequence", ["left", "right", "across", "none"])
             
             self.bidding_required = "Bidding_Phase" in blocks
+            bidding_block = blocks.get("Bidding_Phase", {})
+            self.hook_rule = bidding_block.get("restrictions", {}).get("hook_rule", False)
         else:
             rules_conf = self.config.get("rules", {})
             scoring_conf = rules_conf.get("scoring", {})
@@ -118,6 +120,7 @@ class TrickTakingEnv:
             self.passing_sequence = mechanics.get("passingSequence", ["left", "right", "across", "none"])
             
             self.bidding_required = mechanics.get("biddingRequired", self.scoring_type != "card_points")
+            self.hook_rule = mechanics.get("hookRule", False) or mechanics.get("restrictions", {}).get("hook_rule", False)
 
         # Standard 52 card deck
         # Cards: Suit (0=Clubs, 1=Diamonds, 2=Hearts, 3=Spades), Rank (2-14, 11=J, 12=Q, 13=K, 14=A)
@@ -132,6 +135,7 @@ class TrickTakingEnv:
         self.hands = {p: [] for p in range(self.num_players)}
         self.tricks_won = {p: 0 for p in range(self.num_players)}
         self.bids = {p: 0 for p in range(self.num_players)}
+        self.players_bid = set()
         self.scores = {p: 0 for p in range(self.num_players)}
         self.round_card_points = {p: 0 for p in range(self.num_players)}
         self.accumulated_rewards = {p: 0.0 for p in range(self.num_players)}
@@ -220,8 +224,19 @@ class TrickTakingEnv:
             return [c for c in hand if c not in passed]
             
         if self.phase == "bidding":
+            if player_id in getattr(self, "players_bid", set()):
+                return []
             # During bidding phase, bid options (e.g. 0 to cards_per_player)
-            return list(range(self.cards_per_player + 1))
+            all_bids = list(range(self.cards_per_player + 1))
+            if getattr(self, "hook_rule", False):
+                # The hook rule applies to the last bidder (dealer) of the round
+                last_bidder = (self.starting_player - 1) % self.num_players
+                if player_id == last_bidder:
+                    sum_other_bids = sum(self.bids[p] for p in range(self.num_players) if p != player_id)
+                    forbidden_bid = self.cards_per_player - sum_other_bids
+                    if forbidden_bid in all_bids:
+                        all_bids.remove(forbidden_bid)
+            return all_bids
             
         hand = self.hands[player_id]
         if not self.lead_suit:
@@ -266,9 +281,11 @@ class TrickTakingEnv:
             return self._get_obs(self.current_turn), 0.0, done, {}
             
         if self.phase == "bidding":
+            assert player not in self.players_bid, f"Player {player} has already bid in this round"
             self.bids[player] = int(action)
+            self.players_bid.add(player)
             self.current_turn = (self.current_turn + 1) % self.num_players
-            if len(self.bids) == self.num_players:
+            if len(self.players_bid) == self.num_players:
                 self.phase = "playing"
             return self._get_obs(self.current_turn), 0.0, done, {}
             

@@ -6,7 +6,8 @@ import sys
 import urllib.request
 
 def main():
-    parser = argparse.ArgumentParser(description="Upload trained PyTorch model weights to 52Archive database")
+    print("WARNING: upload_model.py is DEPRECATED. Use direct database connection updates instead.", file=sys.stderr)
+    parser = argparse.ArgumentParser(description="[DEPRECATED] Upload trained PyTorch model weights to 52Archive database")
     parser.add_argument("--game_id", type=str, required=True, help="ID of the game entry in the database")
     parser.add_argument("--model_path", type=str, required=True, help="Path to the trained PyTorch .pt model file")
     parser.add_argument("--arch", type=str, default="mlp", choices=["mlp", "lstm", "gnn"], help="Neural network architecture")

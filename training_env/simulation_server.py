@@ -187,6 +187,7 @@ def simulate(req: SimulateRequest):
             session.env.trick_leader = e["trick_leader"]
             session.env.current_trick = [(int(c[0]), tuple(c[1])) for c in e["current_trick"]]
             session.env.phase = e["phase"]
+            session.env.players_bid = set(e.get("players_bid", []))
             session.obs = session.env._get_obs(session.env.current_turn)
         else:
             session.start_game(req.round_indices)
@@ -263,6 +264,7 @@ def simulate(req: SimulateRequest):
                 "trick_leader": session.env.trick_leader,
                 "current_trick": session.env.current_trick,
                 "phase": session.env.phase,
+                "players_bid": list(getattr(session.env, "players_bid", []))
             },
         }
 

@@ -55,6 +55,7 @@ def run():
             session.env.trick_leader = env_state["trick_leader"]
             session.env.current_trick = [(int(c[0]), tuple(c[1])) for c in env_state["current_trick"]]
             session.env.phase = env_state["phase"]
+            session.env.players_bid = set(env_state.get("players_bid", []))
             
             # Re-generate obs
             session.obs = session.env._get_obs(session.env.current_turn)
@@ -142,7 +143,8 @@ def run():
                 "current_turn": session.env.current_turn,
                 "trick_leader": session.env.trick_leader,
                 "current_trick": session.env.current_trick,
-                "phase": session.env.phase
+                "phase": session.env.phase,
+                "players_bid": list(getattr(session.env, "players_bid", []))
             }
         }
         
