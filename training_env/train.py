@@ -481,6 +481,7 @@ def train(args):
         history_critic_list = [None] * num_envs
         
         trajectories = [[] for _ in range(num_envs)]
+        bidding_trajectories = [[] for _ in range(num_envs)]
         episode_rewards = np.zeros(num_envs, dtype=np.float32)
         episode_lengths = np.zeros(num_envs, dtype=np.int32)
         
@@ -499,8 +500,15 @@ def train(args):
                 probs = torch.softmax(logits, dim=-1)
                 dist = torch.distributions.Categorical(probs)
                 bids = dist.sample()
-                for idx, act_obs, b in zip(active_indices, active_obs, bids):
-                    actions[idx] = min(b.item(), len(act_obs["hand"]))
+                log_probs = dist.log_prob(bids)
+                for i, (idx, act_obs, b) in enumerate(zip(active_indices, active_obs, bids)):
+                    b_val = b.item()
+                    actions[idx] = min(b_val, len(act_obs["hand"]))
+                    bidding_trajectories[idx].append({
+                        'obs': bidding_obs_batch[i].cpu(),
+                        'action': b_val,
+                        'log_prob': log_probs[i].item()
+                    })
             else:
                 playing_obs_batch = torch.stack([preprocess_playing_obs(o) for o in active_obs]).to(device)
                 
@@ -787,6 +795,44 @@ def train(args):
                 dqn_loss_history.append(avg_dqn_loss)
                 entropy_history.append(epsilon)
                     
+        # Joint RL training of bidding policy using PPO
+        bidding_transitions = []
+        for idx in range(num_envs):
+            for trans in bidding_trajectories[idx]:
+                trans['return'] = episode_rewards[idx]
+                bidding_transitions.append(trans)
+                
+        if bidding_transitions:
+            returns = torch.tensor([t['return'] for t in bidding_transitions], dtype=torch.float32, device=device)
+            if len(returns) > 1:
+                advantages = (returns - returns.mean()) / (returns.std() + 1e-8)
+            else:
+                advantages = returns
+                
+            obs_b = torch.stack([t['obs'] for t in bidding_transitions]).to(device)
+            actions_b = torch.tensor([t['action'] for t in bidding_transitions], dtype=torch.long, device=device)
+            old_log_probs_b = torch.tensor([t['log_prob'] for t in bidding_transitions], dtype=torch.float32, device=device)
+            
+            for epoch in range(args.ppo_epochs):
+                logits = bidding_policy(obs_b)
+                probs = torch.softmax(logits, dim=-1)
+                dist = torch.distributions.Categorical(probs)
+                new_log_probs = dist.log_prob(actions_b)
+                entropy = dist.entropy()
+                
+                ratios = torch.exp(new_log_probs - old_log_probs_b)
+                surr1 = ratios * advantages
+                surr2 = torch.clamp(ratios, 1.0 - args.clip_eps, 1.0 + args.clip_eps) * advantages
+                
+                policy_loss = -torch.min(surr1, surr2).mean()
+                entropy_loss = -entropy.mean()
+                loss = policy_loss + args.entropy_coef * entropy_loss
+                
+                optimizer_bid.zero_grad()
+                loss.backward()
+                nn.utils.clip_grad_norm_(bidding_policy.parameters(), max_norm=0.5)
+                optimizer_bid.step()
+                     
         rewards_history.extend(episode_rewards.tolist())
         lengths_history.extend(episode_lengths.tolist())
         if not getattr(args, "silent", False):

@@ -87,7 +87,8 @@ def main():
     parser.add_argument("--episodes", type=int, default=150, help="RL training episodes per grid configuration")
     parser.add_argument("--imitation_episodes", type=int, default=50, help="Imitation learning pre-training episodes")
     parser.add_argument("--gamma", type=float, default=0.99, help="Discount factor")
-    parser.add_argument("--workers", type=int, default=1, help="Number of concurrent worker processes (set > 1 for parallel runs)")
+    parser.add_argument("--parallel", action="store_true", help="Run grid search in parallel using multiple worker processes")
+    parser.add_argument("--workers", type=int, default=4, help="Number of concurrent worker processes when running in parallel (default: 4)")
     parser.add_argument("--num_envs", type=int, default=1, help="Number of vectorized environments per worker")
     
     # Grid lists to search over (comma-separated strings)
@@ -99,17 +100,19 @@ def main():
     
     args = parser.parse_args()
 
+    run_parallel = args.parallel
+
     # XPU Multi-process concurrency safety check to prevent Level Zero driver crashes
     import torch
     is_xpu = hasattr(torch, "xpu") and torch.xpu.is_available()
-    if is_xpu and args.workers > 1:
+    if is_xpu and run_parallel and args.workers > 1:
         print("\n" + "!" * 80)
-        print(" WARNING: Intel XPU (GPU) acceleration is active and --workers > 1.")
+        print(" WARNING: Intel XPU (GPU) acceleration is active and --parallel is requested.")
         print(" Running multiple parallel GPU processes under Windows/Level Zero will likely")
         print(" cause driver context collisions, GPU hangs, and display crashes.")
-        print(" Automatically overriding --workers to 1 for safety.")
+        print(" Automatically overriding to sequential mode (workers = 1) for safety.")
         print("!" * 80 + "\n")
-        args.workers = 1
+        run_parallel = False
 
     # Clear all past training files if requested
     if args.clear_all:
@@ -150,7 +153,7 @@ def main():
     
     print("=" * 70)
     print(f" STARTING HYPERPARAMETER GRID SEARCH ({total_runs} combinations)")
-    print(f" Concurrency: {args.workers} worker process(es)")
+    print(f" Concurrency: {'parallel (' + str(args.workers) + ' workers)' if run_parallel else 'sequential'}")
     print(f" Vectorized Environments: {args.num_envs}")
     print(f" Rules config: {args.rules_yaml}")
     print(f" Architectures: {arch_list}")
@@ -162,8 +165,8 @@ def main():
     results = []
     
     # Prepare parameters tuple list for ProcessPoolExecutor workers
-    # If workers > 1, we force silent mode to prevent stdout cluttering
-    use_silent = args.workers > 1
+    # If run_parallel is True, we force silent mode to prevent stdout cluttering
+    use_silent = run_parallel
     worker_inputs = [
         (
             arch, lr, hidden_dim, reward_mode, idx, total_runs, 
@@ -172,7 +175,7 @@ def main():
         for idx, (arch, lr, hidden_dim, reward_mode) in enumerate(combinations)
     ]
     
-    if args.workers > 1:
+    if run_parallel and args.workers > 1:
         # Parallel Execution
         print(f"Running parallel process pool with {args.workers} concurrent workers...")
         with ProcessPoolExecutor(max_workers=args.workers) as executor:
