@@ -34,54 +34,9 @@ class ReplayBuffer:
     def __len__(self):
         return len(self.buffer)
 
+from train_sb3_maskable import train_sb3
 
-def preprocess_bidding_obs(obs: dict) -> torch.Tensor:
-    """Preprocesses variables for bidding model input."""
-    # Hand cards indicators (52) + Trump suit indicators (5) = 57 dimensions
-    vec = [0] * 57
-    suits = ["Clubs", "Diamonds", "Hearts", "Spades"]
-    for s, r in obs["hand"]:
-        idx = suits.index(s) * 13 + (r - 2)
-        vec[idx] = 1
-    if obs["trump_suit"]:
-        vec[52 + suits.index(obs["trump_suit"])] = 1
-    else:
-        vec[56] = 1
-    return torch.tensor(vec, dtype=torch.float32)
-
-def preprocess_playing_obs(obs: dict) -> torch.Tensor:
-    """Converts observation dict to playing policy input vector (112 dims)."""
-    vec = []
-    
-    # 52 cards indicator: 1 if in hand, 0 otherwise
-    hand_vector = [0] * 52
-    suits = ["Clubs", "Diamonds", "Hearts", "Spades"]
-    for s, r in obs["hand"]:
-        idx = suits.index(s) * 13 + (r - 2)
-        hand_vector[idx] = 1
-    vec.extend(hand_vector)
-    
-    # Trump suit: one-hot (Clubs, Diamonds, Hearts, Spades, None)
-    trump_one_hot = [0] * 5
-    if obs["trump_suit"]:
-        trump_one_hot[suits.index(obs["trump_suit"])] = 1
-    else:
-        trump_one_hot[4] = 1
-    vec.extend(trump_one_hot)
-    
-    # Current trick state: 52 card indicators representing played cards
-    trick_vector = [0] * 52
-    for p_id, card in obs["current_trick"]:
-        idx = suits.index(card[0]) * 13 + (card[1] - 2)
-        trick_vector[idx] = 1
-    vec.extend(trick_vector)
-    
-    # Info: player_id, tricks won, bidding info
-    vec.append(obs["player_id"] / 4.0)
-    vec.append(obs["bids"].get(obs["player_id"], 0) / 10.0)
-    vec.append(obs["tricks_won"].get(obs["player_id"], 0) / 10.0)
-    
-    return torch.tensor(vec, dtype=torch.float32)
+from gym_env import preprocess_bidding_obs, preprocess_playing_obs
 
 def get_device() -> torch.device:
     # 1. Try Mac Metal (MPS)
@@ -195,6 +150,13 @@ class VectorTrickTakingEnv:
         rewards = []
         dones = []
         for i, env in enumerate(self.envs):
+            if actions[i] is None:
+                obs_list.append(env._get_obs(env.current_turn) if hasattr(env, "_get_obs") else None)
+                rewards.append(0.0)
+                dones.append(True)
+                continue
+                
+            # Play the agent's action (since player is 0, reward_returned is player 0's reward)
             obs, reward_returned, done, _ = env.step(actions[i])
             agent_reward = reward_returned
             
@@ -212,11 +174,158 @@ class VectorTrickTakingEnv:
             
         return obs_list, np.array(rewards, dtype=np.float32), np.array(dones, dtype=bool)
 
+
+def generate_imitation_cache(rules_yaml, num_episodes, reward_mode):
+    from env import TrickTakingEnv
+    from heuristics import get_heuristic_action
+    
+    print(f"Generating {num_episodes} imitation episodes...")
+    env = TrickTakingEnv(rules_yaml, reward_mode=reward_mode)
+    suits = ["Clubs", "Diamonds", "Hearts", "Spades"]
+    
+    bidding_obs_list = []
+    bidding_act_list = []
+    playing_rounds = []
+    
+    for episode in range(1, num_episodes + 1):
+        obs = env.reset()
+        done = False
+        
+        round_playing_obs = []
+        round_playing_act = []
+        
+        while not done:
+            player_id = obs["player_id"]
+            heuristic_action = get_heuristic_action(obs)
+            
+            if player_id == 0:
+                if obs["phase"] == "bidding":
+                    bidding_obs_list.append(preprocess_bidding_obs(obs))
+                    bidding_act_list.append(heuristic_action)
+                elif obs["phase"] == "playing":
+                    round_playing_obs.append(preprocess_playing_obs(obs))
+                    target_idx = suits.index(heuristic_action[0]) * 13 + (heuristic_action[1] - 2)
+                    round_playing_act.append(target_idx)
+            
+            obs, reward, done, _ = env.step(heuristic_action)
+            
+        if round_playing_obs:
+            playing_rounds.append({
+                "obs": torch.stack(round_playing_obs),
+                "act": torch.tensor(round_playing_act, dtype=torch.long)
+            })
+            
+    dataset = {
+        "bidding": {
+            "obs": torch.stack(bidding_obs_list) if bidding_obs_list else torch.empty(0, 57),
+            "act": torch.tensor(bidding_act_list, dtype=torch.long) if bidding_act_list else torch.empty(0, dtype=torch.long)
+        },
+        "playing": playing_rounds
+    }
+    return dataset
+
+
+def train_imitation_cached(bidding_policy, playing_policy, dataset, optimizer_bid, optimizer_play, device, arch, epochs=10, batch_size=64):
+    cross_entropy = nn.CrossEntropyLoss()
+    
+    # 1. Train Bidding Policy (Standard batch training)
+    bid_obs = dataset["bidding"]["obs"]
+    bid_act = dataset["bidding"]["act"]
+    if len(bid_obs) > 0:
+        print(f"Training Bidding Policy on {len(bid_obs)} samples for {epochs} epochs...")
+        num_batches = (len(bid_obs) + batch_size - 1) // batch_size
+        for epoch in range(epochs):
+            indices = torch.randperm(len(bid_obs))
+            epoch_loss = 0.0
+            for b in range(num_batches):
+                batch_idx = indices[b * batch_size : (b + 1) * batch_size]
+                obs_batch = bid_obs[batch_idx].to(device)
+                act_batch = bid_act[batch_idx].to(device)
+                
+                optimizer_bid.zero_grad()
+                logits = bidding_policy(obs_batch)
+                loss = cross_entropy(logits, act_batch)
+                loss.backward()
+                optimizer_bid.step()
+                epoch_loss += loss.item()
+            
+    # 2. Train Playing Policy
+    playing_rounds = dataset["playing"]
+    if playing_rounds:
+        print(f"Training Playing Policy ({arch}) on {len(playing_rounds)} rounds for {epochs} epochs...")
+        
+        if arch in ["lstm", "transformer"]:
+            # Sequential training preserving trajectory states
+            for epoch in range(epochs):
+                random.shuffle(playing_rounds)
+                epoch_loss = 0.0
+                for round_data in playing_rounds:
+                    obs = round_data["obs"].to(device)
+                    act = round_data["act"].to(device)
+                    
+                    optimizer_play.zero_grad()
+                    hidden = None
+                    history = None
+                    round_loss = 0.0
+                    
+                    for step in range(len(obs)):
+                        step_obs = obs[step].unsqueeze(0)
+                        step_act = act[step].unsqueeze(0)
+                        
+                        if arch == "lstm":
+                            logits, hidden = playing_policy(step_obs, hidden)
+                            if hidden is not None:
+                                hidden = (hidden[0].detach(), hidden[1].detach())
+                        else:  # transformer
+                            logits, history = playing_policy(step_obs, history)
+                            if history is not None:
+                                history = history.detach()
+                                
+                        loss = cross_entropy(logits, step_act)
+                        loss.backward()
+                        round_loss += loss.item()
+                        
+                    optimizer_play.step()
+                    epoch_loss += round_loss / len(obs)
+        elif arch == "gnn":
+            all_samples_count = sum(len(r["obs"]) for r in playing_rounds)
+            for epoch in range(epochs):
+                num_batches = (all_samples_count + batch_size - 1) // batch_size
+                for _ in range(num_batches):
+                    optimizer_play.zero_grad()
+                    cur_batch_size = min(batch_size, all_samples_count)
+                    node_idx = torch.randint(0, 120, (cur_batch_size, 30), device=device)
+                    adj = torch.eye(30, device=device).unsqueeze(0).expand(cur_batch_size, -1, -1)
+                    logits = playing_policy(node_idx, adj)
+                    target_tensor = torch.randint(0, 52, (cur_batch_size,), dtype=torch.long, device=device)
+                    loss = cross_entropy(logits, target_tensor)
+                    loss.backward()
+                    optimizer_play.step()
+        else:  # mlp
+            all_obs = torch.cat([r["obs"] for r in playing_rounds])
+            all_act = torch.cat([r["act"] for r in playing_rounds])
+            num_batches = (len(all_obs) + batch_size - 1) // batch_size
+            for epoch in range(epochs):
+                indices = torch.randperm(len(all_obs))
+                epoch_loss = 0.0
+                for b in range(num_batches):
+                    batch_idx = indices[b * batch_size : (b + 1) * batch_size]
+                    obs_batch = all_obs[batch_idx].to(device)
+                    act_batch = all_act[batch_idx].to(device)
+                    
+                    optimizer_play.zero_grad()
+                    logits = playing_policy(obs_batch)
+                    loss = cross_entropy(logits, act_batch)
+                    loss.backward()
+                    optimizer_play.step()
+                    epoch_loss += loss.item()
+
+
 def train(args):
     # Clear all past training files if requested
     if getattr(args, "clear_all", False):
         import glob
-        patterns = ["model_*", "report_*", "plot_*", "training_report*", "training_reward_plot.png", "grid_search_report_*"]
+        patterns = ["model_*", "report_*", "plot_*", "training_report*", "training_reward_plot.png", "grid_search_report_*", "imitation_cache.pt"]
         print("Clearing all past model, report, and plot files from the directory...")
         deleted_count = 0
         for pattern in patterns:
@@ -242,6 +351,9 @@ def train(args):
             except Exception as e:
                 print(f"Error removing {f}: {e}")
         print(f"Cleared {deleted_count} previous file runs.")
+
+    if getattr(args, "arch", "") == "sb3_maskable":
+        return train_sb3(args)
 
     device = get_device()
     num_envs = getattr(args, "num_envs", 1)
@@ -282,137 +394,40 @@ def train(args):
     rl_time = 0.0
     imitation_start = time.time()
     
-    if num_envs > 1:
-        vec_env = VectorTrickTakingEnv(num_envs, args.rules_yaml, reward_mode=args.reward_mode)
+    if getattr(args, "imitation_episodes", 0) > 0:
+        imitation_cache_path = getattr(args, "imitation_cache_path", "imitation_cache.pt")
+        force_regenerate = getattr(args, "force_regenerate_cache", False)
         
-        print(f"--- Bootstrapping Phase: running {args.imitation_episodes} episodes of Imitation Learning (vectorized) ---")
-        for episode in range(1, args.imitation_episodes + 1):
-            obs_list = vec_env.reset()
-            done = [False] * num_envs
-            hidden_list = [None] * num_envs
-            history_list = [None] * num_envs
-            
-            while not all(done):
-                active_indices = [i for i in range(num_envs) if not done[i]]
-                if not active_indices:
-                    break
-                active_obs = [obs_list[i] for i in active_indices]
-                first_obs = active_obs[0]
-                
-                if first_obs["phase"] == "bidding":
-                    optimizer_bid.zero_grad()
-                    bidding_obs_batch = torch.stack([preprocess_bidding_obs(o) for o in active_obs]).to(device)
-                    logits = bidding_policy(bidding_obs_batch)
-                    heuristic_actions = [get_heuristic_action(o) for o in active_obs]
-                    target_tensor = torch.tensor(heuristic_actions, dtype=torch.long, device=device)
-                    loss = cross_entropy(logits, target_tensor)
-                    loss.backward()
-                    optimizer_bid.step()
-                    
-                    actions = [None] * num_envs
-                    for idx, a in zip(active_indices, heuristic_actions):
-                        actions[idx] = a
-                    obs_list_new, _, dones_new = vec_env.step(actions)
-                else:
-                    optimizer_play.zero_grad()
-                    playing_obs_batch = torch.stack([preprocess_playing_obs(o) for o in active_obs]).to(device)
-                    
-                    prev_hidden = [hidden_list[idx] for idx in active_indices]
-                    prev_history = [history_list[idx] for idx in active_indices]
-                    
-                    if args.arch == "lstm":
-                        active_hidden = stack_lstm_hidden(prev_hidden, device)
-                        logits, active_hidden = playing_policy(playing_obs_batch, active_hidden)
-                        new_hidden_list = split_lstm_hidden(active_hidden, active_indices, num_envs)
-                        for idx in active_indices:
-                            hidden_list[idx] = new_hidden_list[idx]
-                    elif args.arch == "transformer":
-                        active_history = stack_transformer_history(prev_history, device)
-                        logits, active_history = playing_policy(playing_obs_batch, active_history)
-                        new_history_list = split_transformer_history(active_history, active_indices, num_envs)
-                        for idx in active_indices:
-                            history_list[idx] = new_history_list[idx]
-                    elif args.arch == "gnn":
-                        node_idx = torch.randint(0, 120, (len(active_indices), 30), device=device)
-                        adj = torch.eye(30, device=device).unsqueeze(0).expand(len(active_indices), -1, -1)
-                        logits = playing_policy(node_idx, adj)
-                    else:
-                        logits = playing_policy(playing_obs_batch)
-                        
-                    heuristic_actions = [get_heuristic_action(o) for o in active_obs]
-                    target_indices = [suits.index(a[0]) * 13 + (a[1] - 2) for a in heuristic_actions]
-                    target_tensor = torch.tensor(target_indices, dtype=torch.long, device=device)
-                    loss = cross_entropy(logits, target_tensor)
-                    loss.backward()
-                    optimizer_play.step()
-                    
-                    actions = [None] * num_envs
-                    for idx, a in zip(active_indices, heuristic_actions):
-                        actions[idx] = a
-                    obs_list_new, _, dones_new = vec_env.step(actions)
-                    
-                for idx in active_indices:
-                    obs_list[idx] = obs_list_new[idx]
-                    done[idx] = dones_new[idx]
-                    
+        dataset = None
+        if not force_regenerate and os.path.exists(imitation_cache_path):
             if not getattr(args, "silent", False):
-                if episode % max(1, args.imitation_episodes // 5) == 0:
-                    print(f"Imitation Pre-training: Episode batch {episode}/{args.imitation_episodes} Completed.")
-    else:
-        print(f"--- Bootstrapping Phase: running {args.imitation_episodes} episodes of Imitation Learning ---")
-        for episode in range(1, args.imitation_episodes + 1):
-            obs = env.reset()
-            done = False
-            hidden = None
-            history = None
-            
-            while not done:
-                player_id = obs["player_id"]
-                heuristic_action = get_heuristic_action(obs)
+                print(f"Loading cached imitation dataset from {imitation_cache_path}...")
+            try:
+                dataset = torch.load(imitation_cache_path)
+            except Exception as e:
+                print(f"Failed to load cache: {e}. Regenerating...")
                 
-                if player_id == 0:
-                    if obs["phase"] == "passing":
-                        action = heuristic_action
-                    elif obs["phase"] == "bidding":
-                        bidding_obs = preprocess_bidding_obs(obs).to(device)
-                        optimizer_bid.zero_grad()
-                        logits = bidding_policy(bidding_obs)
-                        loss = cross_entropy(logits.unsqueeze(0), torch.tensor([heuristic_action], device=device))
-                        loss.backward()
-                        optimizer_bid.step()
-                        action = heuristic_action
-                    else:
-                        playing_obs = preprocess_playing_obs(obs).to(device)
-                        optimizer_play.zero_grad()
-                        if args.arch == "lstm":
-                            logits, hidden = playing_policy(playing_obs.unsqueeze(0), hidden)
-                            if hidden is not None:
-                                hidden = (hidden[0].detach(), hidden[1].detach())
-                        elif args.arch == "transformer":
-                            logits, history = playing_policy(playing_obs.unsqueeze(0), history)
-                            if history is not None:
-                                history = history.detach()
-                        elif args.arch == "gnn":
-                            node_idx = torch.randint(0, 120, (1, 30), device=device)
-                            adj = torch.eye(30, device=device).unsqueeze(0)
-                            logits = playing_policy(node_idx, adj)
-                        else:
-                            logits = playing_policy(playing_obs)
-                            
-                        target_idx = suits.index(heuristic_action[0]) * 13 + (heuristic_action[1] - 2)
-                        logits_2d = logits.flatten().unsqueeze(0)
-                        loss = cross_entropy(logits_2d, torch.tensor([target_idx], device=device))
-                        loss.backward()
-                        optimizer_play.step()
-                        action = heuristic_action
-                else:
-                    action = heuristic_action
-                    
-                obs, reward, done, _ = env.step(action)
+        if dataset is None:
+            dataset = generate_imitation_cache(args.rules_yaml, args.imitation_episodes, args.reward_mode)
+            try:
+                torch.save(dataset, imitation_cache_path)
+                if not getattr(args, "silent", False):
+                    print(f"Saved generated imitation dataset to cache at {imitation_cache_path}")
+            except Exception as e:
+                print(f"Failed to save dataset to cache: {e}")
                 
-            if not getattr(args, "silent", False):
-                if episode % max(1, args.imitation_episodes // 5) == 0:
-                    print(f"Imitation Pre-training: Episode {episode}/{args.imitation_episodes} Completed.")
+        # Run offline supervised training
+        train_imitation_cached(
+            bidding_policy, 
+            playing_policy, 
+            dataset, 
+            optimizer_bid, 
+            optimizer_play, 
+            device, 
+            args.arch, 
+            epochs=getattr(args, "imitation_epochs", 10), 
+            batch_size=64
+        )
 
     # ── Reinforcement Learning Phase (PPO) ───────────────────────────────────
     if args.arch == "dqn":
@@ -809,9 +824,12 @@ def train(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="AI Agent Training Script")
     parser.add_argument("--rules_yaml", type=str, default="../judgement_game.yaml", help="Path to the rule configuration YAML")
-    parser.add_argument("--arch", type=str, default="lstm", choices=["mlp", "lstm", "gnn", "transformer", "dqn"], help="Neural network architecture")
+    parser.add_argument("--arch", type=str, default="lstm", choices=["mlp", "lstm", "gnn", "transformer", "dqn", "sb3_maskable"], help="Neural network architecture")
     parser.add_argument("--episodes", type=int, default=100, help="Number of RL training episodes")
     parser.add_argument("--imitation_episodes", type=int, default=100, help="Number of imitation bootstrap episodes")
+    parser.add_argument("--imitation_cache_path", type=str, default="imitation_cache.pt", help="Path to save/load cached imitation bootstrap dataset")
+    parser.add_argument("--force_regenerate_cache", action="store_true", help="Force regeneration of the cached imitation bootstrap dataset")
+    parser.add_argument("--imitation_epochs", type=int, default=10, help="Number of epochs to train on the imitation cache")
     parser.add_argument("--lr", type=float, default=0.001, help="Learning rate")
     parser.add_argument("--gamma", type=float, default=0.99, help="Discount factor")
     parser.add_argument("--hidden_dim", type=int, default=128, help="Hidden layers dimension")
