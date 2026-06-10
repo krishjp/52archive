@@ -13,8 +13,27 @@ import numpy as np
 import random
 import time
 from env import TrickTakingEnv
-from models import MLPPolicy, LSTMPolicy, SimpleGNNPolicy, TransformerPolicy
+from models import MLPPolicy, LSTMPolicy, SimpleGNNPolicy, TransformerPolicy, DQN
 from heuristics import get_heuristic_action
+
+class ReplayBuffer:
+    def __init__(self, capacity: int = 10000):
+        self.capacity = capacity
+        self.buffer = []
+        self.position = 0
+        
+    def push(self, state, action, reward, next_state, done, legal_indices, next_legal_indices):
+        if len(self.buffer) < self.capacity:
+            self.buffer.append(None)
+        self.buffer[self.position] = (state, action, reward, next_state, done, legal_indices, next_legal_indices)
+        self.position = (self.position + 1) % self.capacity
+        
+    def sample(self, batch_size):
+        return random.sample(self.buffer, batch_size)
+        
+    def __len__(self):
+        return len(self.buffer)
+
 
 def preprocess_bidding_obs(obs: dict) -> torch.Tensor:
     """Preprocesses variables for bidding model input."""
@@ -176,7 +195,6 @@ class VectorTrickTakingEnv:
         rewards = []
         dones = []
         for i, env in enumerate(self.envs):
-            # Play the agent's action (since player is 0, reward_returned is player 0's reward)
             obs, reward_returned, done, _ = env.step(actions[i])
             agent_reward = reward_returned
             
@@ -247,6 +265,8 @@ def train(args):
         playing_policy = TransformerPolicy(input_dim=112, action_dim=52, hidden_dim=args.hidden_dim).to(device)
     elif args.arch == "gnn":
         playing_policy = SimpleGNNPolicy(num_nodes=120, node_dim=16, action_dim=52, hidden_dim=args.hidden_dim).to(device)
+    elif args.arch == "dqn":
+        playing_policy = DQN(input_dim=112, action_dim=52, hidden_dim=args.hidden_dim).to(device)
     else:
         raise ValueError(f"Unknown architecture {args.arch}")
         
@@ -257,6 +277,10 @@ def train(args):
     
     rewards_history = []
     suits = ["Clubs", "Diamonds", "Hearts", "Spades"]
+    
+    imitation_time = 0.0
+    rl_time = 0.0
+    imitation_start = time.time()
     
     if num_envs > 1:
         vec_env = VectorTrickTakingEnv(num_envs, args.rules_yaml, reward_mode=args.reward_mode)
@@ -391,16 +415,29 @@ def train(args):
                     print(f"Imitation Pre-training: Episode {episode}/{args.imitation_episodes} Completed.")
 
     # ── Reinforcement Learning Phase (PPO) ───────────────────────────────────
-    if args.arch == "mlp":
-        playing_critic = MLPPolicy(input_dim=112, action_dim=1, hidden_dim=args.hidden_dim).to(device)
-    elif args.arch == "lstm":
-        playing_critic = LSTMPolicy(input_dim=112, action_dim=1, hidden_dim=args.hidden_dim).to(device)
-    elif args.arch == "transformer":
-        playing_critic = TransformerPolicy(input_dim=112, action_dim=1, hidden_dim=args.hidden_dim).to(device)
-    elif args.arch == "gnn":
-        playing_critic = SimpleGNNPolicy(num_nodes=120, node_dim=16, action_dim=1, hidden_dim=args.hidden_dim).to(device)
-        
-    optimizer_play = optim.Adam(list(playing_policy.parameters()) + list(playing_critic.parameters()), lr=args.lr)
+    if args.arch == "dqn":
+        target_policy = DQN(input_dim=112, action_dim=52, hidden_dim=args.hidden_dim).to(device)
+        target_policy.load_state_dict(playing_policy.state_dict())
+        target_policy.eval()
+        optimizer_play = optim.Adam(playing_policy.parameters(), lr=args.lr)
+        replay_buffer = ReplayBuffer(capacity=20000)
+        epsilon = 0.5
+        epsilon_min = 0.05
+        epsilon_decay = 0.995
+    else:
+        if args.arch == "mlp":
+            playing_critic = MLPPolicy(input_dim=112, action_dim=1, hidden_dim=args.hidden_dim).to(device)
+        elif args.arch == "lstm":
+            playing_critic = LSTMPolicy(input_dim=112, action_dim=1, hidden_dim=args.hidden_dim).to(device)
+        elif args.arch == "transformer":
+            playing_critic = TransformerPolicy(input_dim=112, action_dim=1, hidden_dim=args.hidden_dim).to(device)
+        elif args.arch == "gnn":
+            playing_critic = SimpleGNNPolicy(num_nodes=120, node_dim=16, action_dim=1, hidden_dim=args.hidden_dim).to(device)
+            
+        optimizer_play = optim.Adam(list(playing_policy.parameters()) + list(playing_critic.parameters()), lr=args.lr)
+    
+    imitation_time = time.time() - imitation_start
+    rl_start = time.time()
     
     vec_env = VectorTrickTakingEnv(num_envs, args.rules_yaml, reward_mode=args.reward_mode)
     
@@ -444,77 +481,100 @@ def train(args):
                 prev_history = [history_list[idx] for idx in active_indices]
                 prev_history_critic = [history_critic_list[idx] for idx in active_indices]
                 
-                # Policy forward pass
-                if args.arch == "lstm":
-                    active_hidden = stack_lstm_hidden(prev_hidden, device)
-                    logits, active_hidden = playing_policy(playing_obs_batch, active_hidden)
-                    new_hidden_list = split_lstm_hidden(active_hidden, active_indices, num_envs)
-                    for idx in active_indices:
-                        hidden_list[idx] = new_hidden_list[idx]
-                elif args.arch == "transformer":
-                    active_history = stack_transformer_history(prev_history, device)
-                    logits, active_history = playing_policy(playing_obs_batch, active_history)
-                    new_history_list = split_transformer_history(active_history, active_indices, num_envs)
-                    for idx in active_indices:
-                        history_list[idx] = new_history_list[idx]
-                elif args.arch == "gnn":
-                    node_idx = torch.randint(0, 120, (len(active_indices), 30), device=device)
-                    adj = torch.eye(30, device=device).unsqueeze(0).expand(len(active_indices), -1, -1)
-                    logits = playing_policy(node_idx, adj)
+                # Policy and Critic forward passes
+                if args.arch == "dqn":
+                    with torch.no_grad():
+                        q_values = playing_policy(playing_obs_batch)
                 else:
-                    logits = playing_policy(playing_obs_batch)
-                    
-                # Critic forward pass
-                with torch.no_grad():
+                    # Policy forward pass
                     if args.arch == "lstm":
-                        active_hidden_critic = stack_lstm_hidden(prev_hidden_critic, device)
-                        values, active_hidden_critic = playing_critic(playing_obs_batch, active_hidden_critic)
-                        new_hidden_critic_list = split_lstm_hidden(active_hidden_critic, active_indices, num_envs)
+                        active_hidden = stack_lstm_hidden(prev_hidden, device)
+                        logits, active_hidden = playing_policy(playing_obs_batch, active_hidden)
+                        new_hidden_list = split_lstm_hidden(active_hidden, active_indices, num_envs)
                         for idx in active_indices:
-                            hidden_critic_list[idx] = new_hidden_critic_list[idx]
+                            hidden_list[idx] = new_hidden_list[idx]
                     elif args.arch == "transformer":
-                        active_history_critic = stack_transformer_history(prev_history_critic, device)
-                        values, active_history_critic = playing_critic(playing_obs_batch, active_history_critic)
-                        new_history_critic_list = split_transformer_history(active_history_critic, active_indices, num_envs)
+                        active_history = stack_transformer_history(prev_history, device)
+                        logits, active_history = playing_policy(playing_obs_batch, active_history)
+                        new_history_list = split_transformer_history(active_history, active_indices, num_envs)
                         for idx in active_indices:
-                            hidden_critic_list[idx] = new_history_critic_list[idx]
+                            history_list[idx] = new_history_list[idx]
                     elif args.arch == "gnn":
-                        values = playing_critic(node_idx, adj)
+                        node_idx = torch.randint(0, 120, (len(active_indices), 30), device=device)
+                        adj = torch.eye(30, device=device).unsqueeze(0).expand(len(active_indices), -1, -1)
+                        logits = playing_policy(node_idx, adj)
                     else:
-                        values = playing_critic(playing_obs_batch)
-                
-                values = values.flatten()
+                        logits = playing_policy(playing_obs_batch)
+                        
+                    # Critic forward pass
+                    with torch.no_grad():
+                        if args.arch == "lstm":
+                            active_hidden_critic = stack_lstm_hidden(prev_hidden_critic, device)
+                            values, active_hidden_critic = playing_critic(playing_obs_batch, active_hidden_critic)
+                            new_hidden_critic_list = split_lstm_hidden(active_hidden_critic, active_indices, num_envs)
+                            for idx in active_indices:
+                                hidden_critic_list[idx] = new_hidden_critic_list[idx]
+                        elif args.arch == "transformer":
+                            active_history_critic = stack_transformer_history(prev_history_critic, device)
+                            values, active_history_critic = playing_critic(playing_obs_batch, active_history_critic)
+                            new_history_critic_list = split_transformer_history(active_history_critic, active_indices, num_envs)
+                            for idx in active_indices:
+                                hidden_critic_list[idx] = new_history_critic_list[idx]
+                        elif args.arch == "gnn":
+                            values = playing_critic(node_idx, adj)
+                        else:
+                            values = playing_critic(playing_obs_batch)
+                    
+                    values = values.flatten()
                 
                 # Sample actions and record trajectories
                 for i, (idx, act_obs) in enumerate(zip(active_indices, active_obs)):
-                    env_logits = logits[i]
                     legal_moves = act_obs["legal_moves"]
                     legal_indices = [suits.index(s) * 13 + (r - 2) for s, r in legal_moves]
                     
-                    masked_logits = torch.full_like(env_logits, -float('inf'))
-                    masked_logits[legal_indices] = env_logits[legal_indices]
-                    probs = torch.softmax(masked_logits, dim=-1)
-                    dist = torch.distributions.Categorical(probs)
-                    
-                    act_idx = dist.sample()
-                    log_prob = dist.log_prob(act_idx)
-                    idx_val = act_idx.item()
-                    
-                    actions[idx] = (suits[idx_val // 13], (idx_val % 13) + 2)
-                    
-                    trajectories[idx].append({
-                        'obs': playing_obs_batch[i].cpu(),
-                        'action_idx': idx_val,
-                        'log_prob': log_prob.item(),
-                        'value': values[i].item(),
-                        'legal_indices': legal_indices,
-                        'hidden': prev_hidden[i],
-                        'hidden_critic': prev_hidden_critic[i],
-                        'history': prev_history[i],
-                        'history_critic': prev_history_critic[i],
-                        'node_idx': node_idx[i].cpu() if args.arch == "gnn" else None,
-                        'adj': adj[i].cpu() if args.arch == "gnn" else None
-                    })
+                    if args.arch == "dqn":
+                        if random.random() < epsilon:
+                            act_idx = random.choice(legal_indices)
+                        else:
+                            masked_q = q_values[i].clone()
+                            illegal_mask = torch.ones_like(masked_q, dtype=torch.bool)
+                            illegal_mask[legal_indices] = False
+                            masked_q[illegal_mask] = -float('inf')
+                            act_idx = masked_q.argmax().item()
+                            
+                        actions[idx] = (suits[act_idx // 13], (act_idx % 13) + 2)
+                        
+                        trajectories[idx].append({
+                            'obs': playing_obs_batch[i].cpu(),
+                            'action_idx': act_idx,
+                            'legal_indices': legal_indices,
+                        })
+                    else:
+                        env_logits = logits[i]
+                        masked_logits = torch.full_like(env_logits, -float('inf'))
+                        masked_logits[legal_indices] = env_logits[legal_indices]
+                        probs = torch.softmax(masked_logits, dim=-1)
+                        dist = torch.distributions.Categorical(probs)
+                        
+                        act_idx = dist.sample()
+                        log_prob = dist.log_prob(act_idx)
+                        idx_val = act_idx.item()
+                        
+                        actions[idx] = (suits[idx_val // 13], (idx_val % 13) + 2)
+                        
+                        trajectories[idx].append({
+                            'obs': playing_obs_batch[i].cpu(),
+                            'action_idx': idx_val,
+                            'log_prob': log_prob.item(),
+                            'value': values[i].item(),
+                            'legal_indices': legal_indices,
+                            'hidden': prev_hidden[i],
+                            'hidden_critic': prev_hidden_critic[i],
+                            'history': prev_history[i],
+                            'history_critic': prev_history_critic[i],
+                            'node_idx': node_idx[i].cpu() if args.arch == "gnn" else None,
+                            'adj': adj[i].cpu() if args.arch == "gnn" else None
+                        })
                     
             obs_list_new, step_rewards, dones_new = vec_env.step(actions)
             for idx in active_indices:
@@ -526,89 +586,154 @@ def train(args):
                     trajectories[idx][-1]['reward'] = step_rewards[idx]
                     trajectories[idx][-1]['done'] = dones_new[idx]
                     
-        # Compute returns and advantages
-        all_transitions = []
-        for idx in range(num_envs):
-            traj = trajectories[idx]
-            if not traj:
-                continue
-            advantages, returns = compute_gae(traj, args.gamma, args.gae_lambda)
-            for t, trans in enumerate(traj):
-                trans['advantage'] = advantages[t]
-                trans['return'] = returns[t]
-                all_transitions.append(trans)
-                
-        # PPO optimization epochs
-        if all_transitions:
-            for epoch in range(args.ppo_epochs):
-                random.shuffle(all_transitions)
-                for start_idx in range(0, len(all_transitions), args.mini_batch_size):
-                    end_idx = min(start_idx + args.mini_batch_size, len(all_transitions))
-                    batch = all_transitions[start_idx:end_idx]
-                    
-                    obs_b = torch.stack([t['obs'] for t in batch]).to(device)
-                    actions_b = torch.tensor([t['action_idx'] for t in batch], dtype=torch.long, device=device)
-                    old_log_probs_b = torch.tensor([t['log_prob'] for t in batch], dtype=torch.float32, device=device)
-                    returns_b = torch.tensor([t['return'] for t in batch], dtype=torch.float32, device=device)
-                    advantages_b = torch.tensor([t['advantage'] for t in batch], dtype=torch.float32, device=device)
-                    
-                    if args.arch == "lstm":
-                        hiddens_b = stack_lstm_hidden([t['hidden'] for t in batch], device)
-                        hiddens_critic_b = stack_lstm_hidden([t['hidden_critic'] for t in batch], device)
-                        logits, _ = playing_policy(obs_b, hiddens_b)
-                        values, _ = playing_critic(obs_b, hiddens_critic_b)
-                    elif args.arch == "transformer":
-                        histories_b = stack_transformer_history([t['history'] for t in batch], device)
-                        histories_critic_b = stack_transformer_history([t['history_critic'] for t in batch], device)
-                        logits, _ = playing_policy(obs_b, histories_b)
-                        values, _ = playing_critic(obs_b, histories_critic_b)
-                    elif args.arch == "gnn":
-                        node_idx_b = torch.stack([t['node_idx'] for t in batch]).to(device)
-                        adj_b = torch.stack([t['adj'] for t in batch]).to(device)
-                        logits = playing_policy(node_idx_b, adj_b)
-                        values = playing_critic(node_idx_b, adj_b)
-                    else:
-                        logits = playing_policy(obs_b)
-                        values = playing_critic(obs_b)
+                    if args.arch == "dqn":
+                        if not dones_new[idx] and obs_list[idx]["phase"] == "playing":
+                            next_obs = preprocess_playing_obs(obs_list[idx])
+                            next_legal_moves = obs_list[idx]["legal_moves"]
+                            next_legal_indices = [suits.index(s) * 13 + (r - 2) for s, r in next_legal_moves]
+                        else:
+                            next_obs = torch.zeros(112)
+                            next_legal_indices = []
                         
-                    values = values.flatten()
+                        traj_item = trajectories[idx][-1]
+                        replay_buffer.push(
+                            traj_item['obs'],
+                            traj_item['action_idx'],
+                            traj_item['reward'],
+                            next_obs,
+                            traj_item['done'],
+                            traj_item['legal_indices'],
+                            next_legal_indices
+                        )
                     
-                    masked_logits = torch.full_like(logits, -float('inf'))
-                    for i, t in enumerate(batch):
-                        masked_logits[i, t['legal_indices']] = logits[i, t['legal_indices']]
+        # Compute returns and advantages & run updates
+        if args.arch != "dqn":
+            all_transitions = []
+            for idx in range(num_envs):
+                traj = trajectories[idx]
+                if not traj:
+                    continue
+                advantages, returns = compute_gae(traj, args.gamma, args.gae_lambda)
+                for t, trans in enumerate(traj):
+                    trans['advantage'] = advantages[t]
+                    trans['return'] = returns[t]
+                    all_transitions.append(trans)
+                    
+            # PPO optimization epochs
+            if all_transitions:
+                for epoch in range(args.ppo_epochs):
+                    random.shuffle(all_transitions)
+                    for start_idx in range(0, len(all_transitions), args.mini_batch_size):
+                        end_idx = min(start_idx + args.mini_batch_size, len(all_transitions))
+                        batch = all_transitions[start_idx:end_idx]
                         
-                    probs = torch.softmax(masked_logits, dim=-1)
-                    dist = torch.distributions.Categorical(probs)
-                    new_log_probs = dist.log_prob(actions_b)
-                    entropy = dist.entropy()
-                    
-                    ratios = torch.exp(new_log_probs - old_log_probs_b)
-                    
-                    if len(advantages_b) > 1:
-                        adv_std = advantages_b.std() + 1e-8
-                        advantages_norm = (advantages_b - advantages_b.mean()) / adv_std
-                    else:
-                        advantages_norm = advantages_b
+                        obs_b = torch.stack([t['obs'] for t in batch]).to(device)
+                        actions_b = torch.tensor([t['action_idx'] for t in batch], dtype=torch.long, device=device)
+                        old_log_probs_b = torch.tensor([t['log_prob'] for t in batch], dtype=torch.float32, device=device)
+                        returns_b = torch.tensor([t['return'] for t in batch], dtype=torch.float32, device=device)
+                        advantages_b = torch.tensor([t['advantage'] for t in batch], dtype=torch.float32, device=device)
                         
-                    surr1 = ratios * advantages_norm
-                    surr2 = torch.clamp(ratios, 1.0 - args.clip_eps, 1.0 + args.clip_eps) * advantages_norm
-                    policy_loss = -torch.min(surr1, surr2).mean()
+                        if args.arch == "lstm":
+                            hiddens_b = stack_lstm_hidden([t['hidden'] for t in batch], device)
+                            hiddens_critic_b = stack_lstm_hidden([t['hidden_critic'] for t in batch], device)
+                            logits, _ = playing_policy(obs_b, hiddens_b)
+                            values, _ = playing_critic(obs_b, hiddens_critic_b)
+                        elif args.arch == "transformer":
+                            histories_b = stack_transformer_history([t['history'] for t in batch], device)
+                            histories_critic_b = stack_transformer_history([t['history_critic'] for t in batch], device)
+                            logits, _ = playing_policy(obs_b, histories_b)
+                            values, _ = playing_critic(obs_b, histories_critic_b)
+                        elif args.arch == "gnn":
+                            node_idx_b = torch.stack([t['node_idx'] for t in batch]).to(device)
+                            adj_b = torch.stack([t['adj'] for t in batch]).to(device)
+                            logits = playing_policy(node_idx_b, adj_b)
+                            values = playing_critic(node_idx_b, adj_b)
+                        else:
+                            logits = playing_policy(obs_b)
+                            values = playing_critic(obs_b)
+                            
+                        values = values.flatten()
+                        
+                        masked_logits = torch.full_like(logits, -float('inf'))
+                        for i, t in enumerate(batch):
+                            masked_logits[i, t['legal_indices']] = logits[i, t['legal_indices']]
+                            
+                        probs = torch.softmax(masked_logits, dim=-1)
+                        dist = torch.distributions.Categorical(probs)
+                        new_log_probs = dist.log_prob(actions_b)
+                        entropy = dist.entropy()
+                        
+                        ratios = torch.exp(new_log_probs - old_log_probs_b)
+                        
+                        if len(advantages_b) > 1:
+                            adv_std = advantages_b.std() + 1e-8
+                            advantages_norm = (advantages_b - advantages_b.mean()) / adv_std
+                        else:
+                            advantages_norm = advantages_b
+                            
+                        surr1 = ratios * advantages_norm
+                        surr2 = torch.clamp(ratios, 1.0 - args.clip_eps, 1.0 + args.clip_eps) * advantages_norm
+                        policy_loss = -torch.min(surr1, surr2).mean()
+                        
+                        value_loss = F.mse_loss(values, returns_b)
+                        entropy_loss = -entropy.mean()
+                        
+                        loss = policy_loss + args.value_coef * value_loss + args.entropy_coef * entropy_loss
+                        
+                        optimizer_play.zero_grad()
+                        loss.backward()
+                        nn.utils.clip_grad_norm_(list(playing_policy.parameters()) + list(playing_critic.parameters()), max_norm=0.5)
+                        optimizer_play.step()
+        else:
+            # DQN optimization
+            if len(replay_buffer) >= args.mini_batch_size:
+                total_steps = sum(len(t) for t in trajectories)
+                num_updates = max(10, total_steps // 2)
+                for _ in range(num_updates):
+                    batch = replay_buffer.sample(args.mini_batch_size)
                     
-                    value_loss = F.mse_loss(values, returns_b)
-                    entropy_loss = -entropy.mean()
+                    obs_b = torch.stack([t[0] for t in batch]).to(device)
+                    actions_b = torch.tensor([t[1] for t in batch], dtype=torch.long, device=device)
+                    rewards_b = torch.tensor([t[2] for t in batch], dtype=torch.float32, device=device)
+                    next_obs_b = torch.stack([t[3] for t in batch]).to(device)
+                    dones_b = torch.tensor([t[4] for t in batch], dtype=torch.float32, device=device)
                     
-                    loss = policy_loss + args.value_coef * value_loss + args.entropy_coef * entropy_loss
+                    q_values = playing_policy(obs_b)
+                    state_action_values = q_values.gather(1, actions_b.unsqueeze(1)).squeeze(1)
+                    
+                    with torch.no_grad():
+                        next_q_values = target_policy(next_obs_b)
+                        
+                        for b_idx, t in enumerate(batch):
+                            next_leg = t[6]
+                            if len(next_leg) > 0:
+                                mask = torch.ones(52, dtype=torch.bool, device=device)
+                                mask[next_leg] = False
+                                next_q_values[b_idx, mask] = -float('inf')
+                        
+                        next_state_values = torch.zeros(args.mini_batch_size, device=device)
+                        for b_idx, t in enumerate(batch):
+                            if not t[4] and len(t[6]) > 0:
+                                next_state_values[b_idx] = next_q_values[b_idx].max()
+                                
+                    expected_state_action_values = rewards_b + (args.gamma * next_state_values)
+                    
+                    loss = F.mse_loss(state_action_values, expected_state_action_values)
                     
                     optimizer_play.zero_grad()
                     loss.backward()
-                    nn.utils.clip_grad_norm_(list(playing_policy.parameters()) + list(playing_critic.parameters()), max_norm=0.5)
+                    nn.utils.clip_grad_norm_(playing_policy.parameters(), max_norm=0.5)
                     optimizer_play.step()
+                    
+                epsilon = max(epsilon_min, epsilon * epsilon_decay)
+                if episode % 5 == 0:
+                    target_policy.load_state_dict(playing_policy.state_dict())
                     
         rewards_history.extend(episode_rewards.tolist())
         if not getattr(args, "silent", False):
             if episode % max(1, args.episodes // 10) == 0:
                 print(f"RL Episode {episode}/{args.episodes} | Average reward: {np.mean(rewards_history[-max(1, len(rewards_history)//10):]):.1f}")
-            
+    rl_time = time.time() - rl_start
     run_id = getattr(args, "run_id", None)
     suffix = f"_{run_id}" if run_id else f"_{int(time.time())}"
     run_info = f"{args.arch}_ep{args.episodes}_lr{args.lr}_h{args.hidden_dim}_{args.reward_mode}{suffix}"
@@ -641,6 +766,9 @@ def train(args):
         f.write(f"Average Reward: {np.mean(rewards_history):.2f}\n")
         f.write(f"Max Reward: {np.max(rewards_history):.2f}\n")
         f.write(f"Min Reward: {np.min(rewards_history):.2f}\n")
+        f.write(f"Imitation Time (Sec): {imitation_time:.2f}\n")
+        f.write(f"RL Time (Sec): {rl_time:.2f}\n")
+        f.write(f"Total Time (Sec): {imitation_time + rl_time:.2f}\n")
     if not getattr(args, "silent", False):
         print(f"Saved training text summary to: {txt_name}")
 
@@ -674,12 +802,14 @@ def train(args):
         "csv_name": csv_name,
         "txt_name": txt_name,
         "plot_name": plot_name,
+        "imitation_time": imitation_time,
+        "rl_time": rl_time,
     }
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="AI Agent Training Script")
     parser.add_argument("--rules_yaml", type=str, default="../judgement_game.yaml", help="Path to the rule configuration YAML")
-    parser.add_argument("--arch", type=str, default="lstm", choices=["mlp", "lstm", "gnn", "transformer"], help="Neural network architecture")
+    parser.add_argument("--arch", type=str, default="lstm", choices=["mlp", "lstm", "gnn", "transformer", "dqn"], help="Neural network architecture")
     parser.add_argument("--episodes", type=int, default=100, help="Number of RL training episodes")
     parser.add_argument("--imitation_episodes", type=int, default=100, help="Number of imitation bootstrap episodes")
     parser.add_argument("--lr", type=float, default=0.001, help="Learning rate")
@@ -687,7 +817,7 @@ if __name__ == "__main__":
     parser.add_argument("--hidden_dim", type=int, default=128, help="Hidden layers dimension")
     parser.add_argument("--clear_previous", action="store_true", help="Delete all previous files matching this run's parameter prefix")
     parser.add_argument("--clear_all", action="store_true", help="Clear all past model, report, and plot files from the directory")
-    parser.add_argument("--reward_mode", type=str, default="zero_sum", choices=["shaped", "pure", "zero_sum"], help="RL reward function strategy")
+    parser.add_argument("--reward_mode", type=str, default="zero_sum", choices=["shaped", "pure", "zero_sum", "aware_shape"], help="RL reward function strategy")
     parser.add_argument("--silent", action="store_true", help="Suppress detailed training loop logs")
     parser.add_argument("--run_id", type=str, default="", help="Unique identifier for output filenames")
     parser.add_argument("--num_envs", type=int, default=1, help="Number of vectorized environments to run in parallel")

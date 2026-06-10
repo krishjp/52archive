@@ -141,3 +141,22 @@ class TransformerPolicy(nn.Module):
         
         return logits, history
 
+
+class DQN(nn.Module):
+    """
+    Deep Q-Network for card games.
+    """
+    def __init__(self, input_dim: int, action_dim: int, hidden_dim: int = 128):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, action_dim)
+        )
+        
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.net(x)
+
+

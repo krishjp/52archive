@@ -267,6 +267,8 @@ class TrickTakingEnv:
         During playing: action is a tuple (suit, rank) from the player's hand.
         """
         player = self.current_turn
+        if self.phase == "completed":
+            return self._get_obs(player), 0.0, True, {}
         done = False
         
         if self.phase == "passing":
@@ -333,7 +335,7 @@ class TrickTakingEnv:
                         self.round_card_points[winner] += pts
             
             # Distribute trick-won or throwaway rewards to all players if in shaped mode
-            if self.reward_mode == "shaped":
+            if self.reward_mode in ("shaped", "aware_shape"):
                 for p in range(self.num_players):
                     bid = self.bids[p]
                     won = self.tricks_won[p]
@@ -351,7 +353,7 @@ class TrickTakingEnv:
                             self.accumulated_rewards[p] += 5.0  # reward for successfully avoiding winning / throwing off cards
             
             # Check for penalty/point cards if shaped mode is selected
-            if self.reward_mode == "shaped":
+            if self.reward_mode in ("shaped", "aware_shape"):
                 if self.card_point_rules:
                     for p_play, c in self.current_trick:
                         for rule in self.card_point_rules:
@@ -420,6 +422,24 @@ class TrickTakingEnv:
                                 self.accumulated_rewards[p] += self.reward_weights.get("terminal_win", 150)
                             else:
                                 self.accumulated_rewards[p] += self.reward_weights.get("terminal_loss", -150)
+                elif self.reward_mode == "aware_shape":
+                    # Build the same base terminal values as zero_sum, then relativize
+                    # against opponents — giving the dense shaped mid-game signals
+                    # but making the terminal outcome opponent-aware.
+                    base_rewards = {}
+                    for p in range(self.num_players):
+                        if self.scoring_type == "card_points":
+                            multiplier = -1.0 if self.scoring_goal == "minimize" else 1.0
+                            base_rewards[p] = float(self.scores[p] * multiplier)
+                        else:
+                            if self.tricks_won[p] == self.bids[p]:
+                                base_rewards[p] = float(self.reward_weights.get("terminal_win", 150))
+                            else:
+                                base_rewards[p] = float(self.reward_weights.get("terminal_loss", -150))
+
+                    for p in range(self.num_players):
+                        opponents_rewards = [base_rewards[opp] for opp in range(self.num_players) if opp != p]
+                        self.accumulated_rewards[p] += base_rewards[p] - float(np.mean(opponents_rewards))
 
         # Retrieve the accumulated rewards for the acting player since their last step
         reward_returned = self.accumulated_rewards[player]
@@ -541,7 +561,7 @@ class TrickTakingEnv:
                     if p == shooter:
                         self.scores[p] = 0
                         # If shaped mode, offset the trick-play card point penalties the shooter accumulated
-                        if self.reward_mode == "shaped":
+                        if self.reward_mode in ("shaped", "aware_shape"):
                             self.accumulated_rewards[p] += float(total_possible_points)
                     else:
                         self.scores[p] = shoot_penalty

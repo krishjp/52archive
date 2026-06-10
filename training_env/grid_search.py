@@ -91,7 +91,7 @@ def main():
     parser.add_argument("--archs", type=str, default="mlp,lstm,transformer", help="Architectures list (comma separated)")
     parser.add_argument("--lrs", type=str, default="0.001,0.0005", help="Learning rates list (comma separated)")
     parser.add_argument("--hidden_dims", type=str, default="64,128", help="Hidden dimensions list (comma separated)")
-    parser.add_argument("--reward_modes", type=str, default="zero_sum,shaped", help="Reward modes list (comma separated)")
+    parser.add_argument("--reward_modes", type=str, default="zero_sum,shaped,aware_shape", help="Reward modes list (comma separated)")
     parser.add_argument("--clear_all", action="store_true", help="Clear all past model, report, and plot files from the directory before running")
     
     args = parser.parse_args()
@@ -185,12 +185,16 @@ def main():
     report_csv = f"grid_search_report_{int(time.time())}.csv"
     with open(report_csv, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["Arch", "LR", "Hidden Dim", "Reward Mode", "Avg Reward", "Avg Reward (Last 10%)", "Max Reward", "Time (Sec)", "Model Path"])
+        writer.writerow(["Arch", "LR", "Hidden Dim", "Reward Mode", "Avg Reward", "Avg Reward (Last 10%)", "Max Reward", "Imitation Time (Sec)", "RL Time (Sec)", "Total Time (Sec)", "Model Path"])
         for r in results:
             writer.writerow([
                 r["arch"], r["lr"], r["hidden_dim"], r["reward_mode"],
                 f"{r['avg_reward']:.2f}", f"{r['avg_reward_last_10pct']:.2f}",
-                f"{r['max_reward']:.2f}", f"{r['time_sec']:.1f}", r["model_name"]
+                f"{r['max_reward']:.2f}",
+                f"{r.get('imitation_time', 0.0):.1f}",
+                f"{r.get('rl_time', 0.0):.1f}",
+                f"{r['time_sec']:.1f}",
+                r["model_name"]
             ])
             
     # Copy the best policy parameters to a standard model weight file for easy use

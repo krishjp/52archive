@@ -7,16 +7,6 @@ can be imported in the simulation API even when torch is not installed.
 
 
 def get_heuristic_action(obs: dict):
-    """
-    A heuristic policy for trick-taking bidding and play (Judgement / Oh Hell)
-    inspired by the research work on JudgmentBot:
-    - Bidding: Calculates bids based on K, Q, A count + trump high cards.
-    - Play:
-      - If tricks_won < bid (goal not reached): play highest card that can win the trick.
-        If cannot win, discard the lowest card.
-      - If tricks_won == bid (goal reached): play highest card that still loses (sluffing high cards).
-        If forced to win, minimize winning card value.
-    """
     legal_moves = obs["legal_moves"]
     if obs["phase"] == "passing":
         # Pass highest rank cards to minimize points / risk
