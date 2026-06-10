@@ -9,7 +9,7 @@ import time
 import csv
 import itertools
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from train import train
+from train import train, generate_imitation_cache
 
 class GridSearchNamespace:
     """Mock namespace to pass config parameters programmatically to train() function."""
@@ -26,6 +26,9 @@ class GridSearchNamespace:
         self.silent = kwargs.get("silent", False)
         self.run_id = kwargs.get("run_id", "")
         self.num_envs = kwargs.get("num_envs", 1)
+        self.imitation_cache_path = kwargs.get("imitation_cache_path", "imitation_cache.pt")
+        self.force_regenerate_cache = kwargs.get("force_regenerate_cache", False)
+        self.imitation_epochs = kwargs.get("imitation_epochs", 10)
         
         # PPO parameters
         self.ppo_epochs = kwargs.get("ppo_epochs", 4)
@@ -88,7 +91,7 @@ def main():
     parser.add_argument("--num_envs", type=int, default=1, help="Number of vectorized environments per worker")
     
     # Grid lists to search over (comma-separated strings)
-    parser.add_argument("--archs", type=str, default="mlp,lstm,transformer", help="Architectures list (comma separated)")
+    parser.add_argument("--archs", type=str, default="mlp,lstm,transformer,sb3_maskable", help="Architectures list (comma separated)")
     parser.add_argument("--lrs", type=str, default="0.001,0.0005", help="Learning rates list (comma separated)")
     parser.add_argument("--hidden_dims", type=str, default="64,128", help="Hidden dimensions list (comma separated)")
     parser.add_argument("--reward_modes", type=str, default="zero_sum,shaped", help="Reward modes list (comma separated)")
@@ -111,7 +114,7 @@ def main():
     # Clear all past training files if requested
     if args.clear_all:
         import glob
-        patterns = ["model_*", "report_*", "plot_*", "training_report*", "training_reward_plot.png", "grid_search_report_*"]
+        patterns = ["model_*", "report_*", "plot_*", "training_report*", "training_reward_plot.png", "grid_search_report_*", "imitation_cache.pt"]
         print("Clearing all past model, report, and plot files from the directory...")
         deleted_count = 0
         for pattern in patterns:
@@ -129,6 +132,19 @@ def main():
     hidden_dim_list = [int(d.strip()) for d in args.hidden_dims.split(",") if d.strip()]
     reward_mode_list = [r.strip() for r in args.reward_modes.split(",") if r.strip()]
     
+    # Pre-generate imitation cache if needed so workers can reuse it
+    imitation_cache_path = "imitation_cache.pt"
+    if args.imitation_episodes > 0 and not os.path.exists(imitation_cache_path):
+        print(f"Pre-generating imitation cache for grid search workers ({args.imitation_episodes} episodes)...")
+        default_reward_mode = reward_mode_list[0] if reward_mode_list else "zero_sum"
+        dataset = generate_imitation_cache(args.rules_yaml, args.imitation_episodes, default_reward_mode)
+        import torch
+        try:
+            torch.save(dataset, imitation_cache_path)
+            print(f"Pre-generated cache successfully saved to {imitation_cache_path}\n")
+        except Exception as e:
+            print(f"Failed to save pre-generated cache: {e}\n")
+            
     combinations = list(itertools.product(arch_list, lr_list, hidden_dim_list, reward_mode_list))
     total_runs = len(combinations)
     
