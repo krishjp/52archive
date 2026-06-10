@@ -382,63 +382,18 @@ def train(args):
     else:
         raise ValueError(f"Unknown architecture {args.arch}")
         
-    optimizer_bid = optim.Adam(bidding_policy.parameters(), lr=args.lr)
-    optimizer_play = optim.Adam(playing_policy.parameters(), lr=args.lr)
-    
-    cross_entropy = nn.CrossEntropyLoss()
-    
-    rewards_history = []
-    suits = ["Clubs", "Diamonds", "Hearts", "Spades"]
-    
-    imitation_time = 0.0
-    rl_time = 0.0
-    imitation_start = time.time()
-    
-    if getattr(args, "imitation_episodes", 0) > 0:
-        imitation_cache_path = getattr(args, "imitation_cache_path", "imitation_cache.pt")
-        force_regenerate = getattr(args, "force_regenerate_cache", False)
-        
-        dataset = None
-        if not force_regenerate and os.path.exists(imitation_cache_path):
-            if not getattr(args, "silent", False):
-                print(f"Loading cached imitation dataset from {imitation_cache_path}...")
-            try:
-                dataset = torch.load(imitation_cache_path)
-            except Exception as e:
-                print(f"Failed to load cache: {e}. Regenerating...")
-                
-        if dataset is None:
-            dataset = generate_imitation_cache(args.rules_yaml, args.imitation_episodes, args.reward_mode)
-            try:
-                torch.save(dataset, imitation_cache_path)
-                if not getattr(args, "silent", False):
-                    print(f"Saved generated imitation dataset to cache at {imitation_cache_path}")
-            except Exception as e:
-                print(f"Failed to save dataset to cache: {e}")
-                
-        # Run offline supervised training
-        train_imitation_cached(
-            bidding_policy, 
-            playing_policy, 
-            dataset, 
-            optimizer_bid, 
-            optimizer_play, 
-            device, 
-            args.arch, 
-            epochs=getattr(args, "imitation_epochs", 10), 
-            batch_size=64
-        )
-
-    # ── Reinforcement Learning Phase (PPO) ───────────────────────────────────
+    # ── Critic / DQN target setup ─────────────────────────────────────────────
+    # Built before imitation so the shared optimizer covers all parameters from
+    # the start — imitation-trained weights carry directly into RL without reset.
     if args.arch == "dqn":
         target_policy = DQN(input_dim=112, action_dim=52, hidden_dim=args.hidden_dim).to(device)
         target_policy.load_state_dict(playing_policy.state_dict())
         target_policy.eval()
-        optimizer_play = optim.Adam(playing_policy.parameters(), lr=args.lr)
         replay_buffer = ReplayBuffer(capacity=20000)
         epsilon = 0.5
         epsilon_min = 0.05
         epsilon_decay = 0.995
+        optimizer_play = optim.Adam(playing_policy.parameters(), lr=args.lr)
     else:
         if args.arch == "mlp":
             playing_critic = MLPPolicy(input_dim=112, action_dim=1, hidden_dim=args.hidden_dim).to(device)
@@ -448,9 +403,66 @@ def train(args):
             playing_critic = TransformerPolicy(input_dim=112, action_dim=1, hidden_dim=args.hidden_dim).to(device)
         elif args.arch == "gnn":
             playing_critic = SimpleGNNPolicy(num_nodes=120, node_dim=16, action_dim=1, hidden_dim=args.hidden_dim).to(device)
-            
-        optimizer_play = optim.Adam(list(playing_policy.parameters()) + list(playing_critic.parameters()), lr=args.lr)
-    
+        optimizer_play = optim.Adam(
+            list(playing_policy.parameters()) + list(playing_critic.parameters()), lr=args.lr
+        )
+
+    optimizer_bid = optim.Adam(bidding_policy.parameters(), lr=args.lr)
+
+    cross_entropy = nn.CrossEntropyLoss()
+    rewards_history = []
+    lengths_history = []
+    policy_loss_history = []
+    value_loss_history = []
+    entropy_loss_history = []
+    entropy_history = []
+    dqn_loss_history = []
+    suits = ["Clubs", "Diamonds", "Hearts", "Spades"]
+
+    imitation_time = 0.0
+    rl_time = 0.0
+    imitation_start = time.time()
+
+    # ── Imitation (Behavioural Cloning) Phase ────────────────────────────────
+    # Both the cached-hit and cache-miss paths produce the same `dataset` dict
+    # and then call train_imitation_cached — a single shared training routine.
+    if getattr(args, "imitation_episodes", 0) > 0:
+        imitation_cache_path = getattr(args, "imitation_cache_path", "imitation_cache.pt")
+        force_regenerate = getattr(args, "force_regenerate_cache", False)
+
+        dataset = None
+        if not force_regenerate and os.path.exists(imitation_cache_path):
+            if not getattr(args, "silent", False):
+                print(f"Loading cached imitation dataset from {imitation_cache_path}...")
+            try:
+                dataset = torch.load(imitation_cache_path)
+            except Exception as e:
+                print(f"Failed to load cache: {e}. Regenerating...")
+
+        if dataset is None:
+            dataset = generate_imitation_cache(
+                args.rules_yaml, args.imitation_episodes, args.reward_mode
+            )
+            try:
+                torch.save(dataset, imitation_cache_path)
+                if not getattr(args, "silent", False):
+                    print(f"Saved imitation dataset to cache at {imitation_cache_path}")
+            except Exception as e:
+                print(f"Failed to save dataset to cache: {e}")
+
+        # Single imitation trainer — same path regardless of cache hit/miss
+        train_imitation_cached(
+            bidding_policy,
+            playing_policy,
+            dataset,
+            optimizer_bid,
+            optimizer_play,
+            device,
+            args.arch,
+            epochs=getattr(args, "imitation_epochs", 10),
+            batch_size=64,
+        )
+
     imitation_time = time.time() - imitation_start
     rl_start = time.time()
     
@@ -470,6 +482,7 @@ def train(args):
         
         trajectories = [[] for _ in range(num_envs)]
         episode_rewards = np.zeros(num_envs, dtype=np.float32)
+        episode_lengths = np.zeros(num_envs, dtype=np.int32)
         
         while not all(done):
             active_indices = [i for i in range(num_envs) if not done[i]]
@@ -596,6 +609,7 @@ def train(args):
                 obs_list[idx] = obs_list_new[idx]
                 episode_rewards[idx] += step_rewards[idx]
                 done[idx] = dones_new[idx]
+                episode_lengths[idx] += 1
                 
                 if first_obs["phase"] == "playing" and len(trajectories[idx]) > 0:
                     trajectories[idx][-1]['reward'] = step_rewards[idx]
@@ -635,6 +649,10 @@ def train(args):
                     all_transitions.append(trans)
                     
             # PPO optimization epochs
+            batch_policy_losses = []
+            batch_value_losses = []
+            batch_entropy_losses = []
+            batch_entropies = []
             if all_transitions:
                 for epoch in range(args.ppo_epochs):
                     random.shuffle(all_transitions)
@@ -699,8 +717,25 @@ def train(args):
                         loss.backward()
                         nn.utils.clip_grad_norm_(list(playing_policy.parameters()) + list(playing_critic.parameters()), max_norm=0.5)
                         optimizer_play.step()
+                        
+                        batch_policy_losses.append(policy_loss.item())
+                        batch_value_losses.append(value_loss.item())
+                        batch_entropy_losses.append(entropy_loss.item())
+                        batch_entropies.append(entropy.mean().item())
+
+            avg_policy_loss = np.mean(batch_policy_losses) if batch_policy_losses else 0.0
+            avg_value_loss = np.mean(batch_value_losses) if batch_value_losses else 0.0
+            avg_entropy_loss = np.mean(batch_entropy_losses) if batch_entropy_losses else 0.0
+            avg_entropy = np.mean(batch_entropies) if batch_entropies else 0.0
+            
+            for _ in range(num_envs):
+                policy_loss_history.append(avg_policy_loss)
+                value_loss_history.append(avg_value_loss)
+                entropy_loss_history.append(avg_entropy_loss)
+                entropy_history.append(avg_entropy)
         else:
             # DQN optimization
+            batch_dqn_losses = []
             if len(replay_buffer) >= args.mini_batch_size:
                 total_steps = sum(len(t) for t in trajectories)
                 num_updates = max(10, total_steps // 2)
@@ -740,11 +775,20 @@ def train(args):
                     nn.utils.clip_grad_norm_(playing_policy.parameters(), max_norm=0.5)
                     optimizer_play.step()
                     
+                    batch_dqn_losses.append(loss.item())
+                    
                 epsilon = max(epsilon_min, epsilon * epsilon_decay)
                 if episode % 5 == 0:
                     target_policy.load_state_dict(playing_policy.state_dict())
+            
+            avg_dqn_loss = np.mean(batch_dqn_losses) if batch_dqn_losses else 0.0
+            
+            for _ in range(num_envs):
+                dqn_loss_history.append(avg_dqn_loss)
+                entropy_history.append(epsilon)
                     
         rewards_history.extend(episode_rewards.tolist())
+        lengths_history.extend(episode_lengths.tolist())
         if not getattr(args, "silent", False):
             if episode % max(1, args.episodes // 10) == 0:
                 print(f"RL Episode {episode}/{args.episodes} | Average reward: {np.mean(rewards_history[-max(1, len(rewards_history)//10):]):.1f}")
@@ -756,7 +800,6 @@ def train(args):
     csv_name = f"report_{run_info}.csv"
     txt_name = f"report_{run_info}.txt"
     plot_name = f"plot_{run_info}.png"
- 
     if not getattr(args, "silent", False):
         print(f"Training finished successfully. Saving model to {model_name}")
     torch.save(playing_policy.state_dict(), model_name)
@@ -765,9 +808,33 @@ def train(args):
     import csv
     with open(csv_name, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["Episode", "Reward"])
-        for idx, r in enumerate(rewards_history):
-            writer.writerow([idx + 1, r])
+        if args.arch == "dqn":
+            writer.writerow(["Episode", "Reward", "CumulativeReward", "EpisodeLength", "DQNLoss"])
+            cum_reward = 0.0
+            for idx, r in enumerate(rewards_history):
+                cum_reward += r
+                writer.writerow([
+                    idx + 1,
+                    r,
+                    cum_reward,
+                    lengths_history[idx] if idx < len(lengths_history) else 0,
+                    dqn_loss_history[idx] if idx < len(dqn_loss_history) else 0.0
+                ])
+        else:
+            writer.writerow(["Episode", "Reward", "CumulativeReward", "EpisodeLength", "Entropy", "PolicyLoss", "ValueLoss", "EntropyLoss"])
+            cum_reward = 0.0
+            for idx, r in enumerate(rewards_history):
+                cum_reward += r
+                writer.writerow([
+                    idx + 1,
+                    r,
+                    cum_reward,
+                    lengths_history[idx] if idx < len(lengths_history) else 0,
+                    entropy_history[idx] if idx < len(entropy_history) else 0.0,
+                    policy_loss_history[idx] if idx < len(policy_loss_history) else 0.0,
+                    value_loss_history[idx] if idx < len(value_loss_history) else 0.0,
+                    entropy_loss_history[idx] if idx < len(entropy_loss_history) else 0.0
+                ])
     if not getattr(args, "silent", False):
         print(f"Saved training CSV data to: {csv_name}")
  
@@ -790,17 +857,91 @@ def train(args):
     # Try plotting
     try:
         import matplotlib.pyplot as plt
-        plt.figure(figsize=(10, 5))
-        plt.plot(range(1, len(rewards_history) + 1), rewards_history, label="Episode Reward", color="blue")
+        
+        # Create a figure with a grid layout
+        fig, axs = plt.subplots(2, 2, figsize=(15, 10))
+        fig.suptitle(f"Training Progress ({args.arch.upper()}) on {env.title}", fontsize=16)
+
+        # Plot 1: Episode Reward & Cumulative Sum
+        color = 'tab:blue'
+        axs[0, 0].set_xlabel('Episode')
+        axs[0, 0].set_ylabel('Episode Reward', color=color)
+        axs[0, 0].plot(range(1, len(rewards_history) + 1), rewards_history, label="Episode Reward", color=color, alpha=0.6)
+        
         sma_window = max(1, len(rewards_history) // 10)
-        sma = np.convolve(rewards_history, np.ones(sma_window)/sma_window, mode='valid')
-        plt.plot(range(sma_window, len(rewards_history) + 1), sma, label=f"SMA-{sma_window}", color="red", linestyle="--")
-        plt.xlabel("Episode")
-        plt.ylabel("Reward")
-        plt.title(f"Training Progress ({args.arch}) on {env.title}")
-        plt.legend()
-        plt.grid(True)
+        if len(rewards_history) >= sma_window and sma_window > 0:
+            sma = np.convolve(rewards_history, np.ones(sma_window)/sma_window, mode='valid')
+            axs[0, 0].plot(range(sma_window, len(rewards_history) + 1), sma, label=f"SMA-{sma_window}", color='red', linestyle="--")
+        axs[0, 0].tick_params(axis='y', labelcolor=color)
+        axs[0, 0].grid(True)
+        axs[0, 0].legend(loc="upper left")
+
+        # Twin axis for Cumulative Rewards
+        ax_cum = axs[0, 0].twinx()
+        color = 'tab:purple'
+        ax_cum.set_ylabel('Cumulative Sum of Rewards', color=color)
+        cum_rewards = np.cumsum(rewards_history)
+        ax_cum.plot(range(1, len(rewards_history) + 1), cum_rewards, label="Cumulative Reward", color=color, linestyle="-")
+        ax_cum.tick_params(axis='y', labelcolor=color)
+        ax_cum.legend(loc="upper right")
+        axs[0, 0].set_title("Rewards progression")
+
+        # Plot 2: Episode Length
+        color = 'tab:green'
+        axs[0, 1].set_xlabel('Episode')
+        axs[0, 1].set_ylabel('Steps', color=color)
+        axs[0, 1].plot(range(1, len(lengths_history) + 1), lengths_history, label="Episode Length", color=color, alpha=0.6)
+        if len(lengths_history) >= sma_window and sma_window > 0:
+            sma_len = np.convolve(lengths_history, np.ones(sma_window)/sma_window, mode='valid')
+            axs[0, 1].plot(range(sma_window, len(lengths_history) + 1), sma_len, label=f"SMA-{sma_window}", color='red', linestyle="--")
+        axs[0, 1].tick_params(axis='y', labelcolor=color)
+        axs[0, 1].grid(True)
+        axs[0, 1].legend(loc="upper left")
+        axs[0, 1].set_title("Episode Length progression")
+
+        # Plot 3: Entropy / Exploration
+        if args.arch == "dqn":
+            color = 'tab:orange'
+            axs[1, 0].set_xlabel('Episode')
+            axs[1, 0].set_ylabel('Epsilon (Exploration)', color=color)
+            axs[1, 0].plot(range(1, len(entropy_history) + 1), entropy_history, label="Epsilon (Exploration)", color=color)
+            axs[1, 0].tick_params(axis='y', labelcolor=color)
+            axs[1, 0].grid(True)
+            axs[1, 0].legend()
+            axs[1, 0].set_title("Exploration Parameter (Epsilon) progression")
+        else:
+            color = 'tab:orange'
+            axs[1, 0].set_xlabel('Episode')
+            axs[1, 0].set_ylabel('Policy Entropy', color=color)
+            axs[1, 0].plot(range(1, len(entropy_history) + 1), entropy_history, label="Entropy", color=color)
+            axs[1, 0].tick_params(axis='y', labelcolor=color)
+            axs[1, 0].grid(True)
+            axs[1, 0].legend()
+            axs[1, 0].set_title("Policy Entropy progression")
+
+        # Plot 4: Algorithm losses
+        if args.arch == "dqn":
+            color = 'tab:red'
+            axs[1, 1].set_xlabel('Episode')
+            axs[1, 1].set_ylabel('Loss', color=color)
+            axs[1, 1].plot(range(1, len(dqn_loss_history) + 1), dqn_loss_history, label="DQN Loss", color=color)
+            axs[1, 1].tick_params(axis='y', labelcolor=color)
+            axs[1, 1].grid(True)
+            axs[1, 1].legend()
+            axs[1, 1].set_title("DQN Loss progression")
+        else:
+            axs[1, 1].set_xlabel('Episode')
+            axs[1, 1].set_ylabel('Loss')
+            axs[1, 1].plot(range(1, len(policy_loss_history) + 1), policy_loss_history, label="Policy Loss", color='blue', alpha=0.7)
+            axs[1, 1].plot(range(1, len(value_loss_history) + 1), value_loss_history, label="Value Loss", color='orange', alpha=0.7)
+            axs[1, 1].plot(range(1, len(entropy_loss_history) + 1), entropy_loss_history, label="Entropy Loss", color='green', alpha=0.7)
+            axs[1, 1].grid(True)
+            axs[1, 1].legend()
+            axs[1, 1].set_title("PPO Loss Component progression")
+
+        plt.tight_layout()
         plt.savefig(plot_name)
+        plt.close()
         if not getattr(args, "silent", False):
             print(f"Generated reward progression graph at: {plot_name}")
     except Exception as e:

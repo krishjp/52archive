@@ -8,7 +8,7 @@ graph_architecture:
       parameters:
         deck_size: 52
         player_count:
-          min: 3
+          min: 4
           max: 7
         team_structure: "singles"
       notes: "Base card count and partnerships for the RL agent structure."

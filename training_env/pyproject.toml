@@ -10,7 +10,9 @@ dependencies = [
     "matplotlib",
     "pyyaml",
     "numpy",
-    "pymongo"
+    "pymongo",
+    "gymnasium",
+    "sb3-contrib>=2.0"
 ]
 
 [[tool.uv.index]]

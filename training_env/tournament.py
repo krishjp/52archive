@@ -16,6 +16,10 @@ Agent spec format:
     "heuristic"                       — built-in heuristic baseline
     "random"                          — random legal-move agent (sanity-check floor)
 
+Note on imports: preprocess_playing_obs / preprocess_bidding_obs live in gym_env.py
+(moved there by the SB3 worktree merge).  This file imports from there to avoid
+duplicate encoding logic.
+
 Output:
     A summary table printed to stdout with per-agent metrics that are reward-mode
     agnostic: bid accuracy, average game score, win rate, and avg card points taken.
@@ -163,47 +167,43 @@ def load_agent_models(agent: AgentSpec, device) -> None:
 
 SUITS = ["Clubs", "Diamonds", "Hearts", "Spades"]
 
+# Import canonical observation encoders from gym_env (single source of truth after merge)
+try:
+    from gym_env import preprocess_playing_obs, preprocess_bidding_obs
+except ImportError:
+    # Fallback inline definitions if gym_env / gymnasium are not installed
+    def preprocess_playing_obs(obs: dict):
+        torch = _get_torch()
+        vec = []
+        hand_vector = [0] * 52
+        for s, r in obs["hand"]:
+            hand_vector[SUITS.index(s) * 13 + (r - 2)] = 1
+        vec.extend(hand_vector)
+        trump_one_hot = [0] * 5
+        if obs["trump_suit"]:
+            trump_one_hot[SUITS.index(obs["trump_suit"])] = 1
+        else:
+            trump_one_hot[4] = 1
+        vec.extend(trump_one_hot)
+        trick_vector = [0] * 52
+        for p_id, card in obs["current_trick"]:
+            trick_vector[SUITS.index(card[0]) * 13 + (card[1] - 2)] = 1
+        vec.extend(trick_vector)
+        vec.append(obs["player_id"] / 4.0)
+        vec.append(obs["bids"].get(obs["player_id"], 0) / 10.0)
+        vec.append(obs["tricks_won"].get(obs["player_id"], 0) / 10.0)
+        return torch.tensor(vec, dtype=torch.float32)
 
-def preprocess_playing_obs(obs: dict):
-    """Converts observation dict to a 112-dim playing policy tensor."""
-    torch = _get_torch()
-    vec = []
-
-    hand_vector = [0] * 52
-    for s, r in obs["hand"]:
-        hand_vector[SUITS.index(s) * 13 + (r - 2)] = 1
-    vec.extend(hand_vector)
-
-    trump_one_hot = [0] * 5
-    if obs["trump_suit"]:
-        trump_one_hot[SUITS.index(obs["trump_suit"])] = 1
-    else:
-        trump_one_hot[4] = 1
-    vec.extend(trump_one_hot)
-
-    trick_vector = [0] * 52
-    for p_id, card in obs["current_trick"]:
-        trick_vector[SUITS.index(card[0]) * 13 + (card[1] - 2)] = 1
-    vec.extend(trick_vector)
-
-    vec.append(obs["player_id"] / 4.0)
-    vec.append(obs["bids"].get(obs["player_id"], 0) / 10.0)
-    vec.append(obs["tricks_won"].get(obs["player_id"], 0) / 10.0)
-
-    return torch.tensor(vec, dtype=torch.float32)
-
-
-def preprocess_bidding_obs(obs: dict):
-    """Converts observation dict to a 57-dim bidding policy tensor."""
-    torch = _get_torch()
-    vec = [0] * 57
-    for s, r in obs["hand"]:
-        vec[SUITS.index(s) * 13 + (r - 2)] = 1
-    if obs["trump_suit"]:
-        vec[52 + SUITS.index(obs["trump_suit"])] = 1
-    else:
-        vec[56] = 1
-    return torch.tensor(vec, dtype=torch.float32)
+    def preprocess_bidding_obs(obs: dict):
+        torch = _get_torch()
+        vec = [0] * 57
+        for s, r in obs["hand"]:
+            vec[SUITS.index(s) * 13 + (r - 2)] = 1
+        if obs["trump_suit"]:
+            vec[52 + SUITS.index(obs["trump_suit"])] = 1
+        else:
+            vec[56] = 1
+        return torch.tensor(vec, dtype=torch.float32)
 
 
 def model_action(agent: AgentSpec, obs: dict, hidden_state, device):
