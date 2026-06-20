@@ -12,16 +12,19 @@ from sb3_contrib.common.maskable.utils import get_action_masks
 
 def train_sb3(args):
     # Determine device
-    device = "cpu"
-    if torch.cuda.is_available():
+    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        device = "mps"
+    elif torch.cuda.is_available():
         device = "cuda"
     elif hasattr(torch, "xpu") and torch.xpu.is_available():
         device = "xpu"
+    else:
+        device = "cpu"
 
     print(f"Using device: {device}")
     
     # Create environment
-    env = GymnasiumTrickTakingWrapper(args.rules_yaml, reward_mode=args.reward_mode)
+    env = GymnasiumTrickTakingWrapper(args.rules_yaml, reward_mode=args.reward_mode, reward_scale=getattr(args, "reward_scale", 1.0))
     
     # Initialize MaskablePPO model
     policy_kwargs = dict(
@@ -137,6 +140,7 @@ if __name__ == "__main__":
     parser.add_argument("--entropy_coef", type=float, default=0.01, help="PPO entropy loss coefficient")
     parser.add_argument("--gae_lambda", type=float, default=0.95, help="GAE lambda parameter")
     parser.add_argument("--mini_batch_size", type=int, default=64, help="PPO mini-batch size")
+    parser.add_argument("--reward_scale", type=float, default=1.0, help="Reward scaling factor")
     
     args = parser.parse_args()
     train_sb3(args)

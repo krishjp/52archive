@@ -113,52 +113,26 @@ _BIDDING_INPUT_DIM = 57
 _BIDDING_ACTION_DIM = 11   # bids 0..10
 
 
+from model_utils import load_model
+
 def load_agent_models(agent: AgentSpec, device) -> None:
     """Loads the playing and bidding policy networks into the agent in-place."""
     if agent.kind != "model":
         return
 
-    torch = _get_torch()
-    from models import MLPPolicy, LSTMPolicy, SimpleGNNPolicy, TransformerPolicy, DQN
-
-    arch = agent.arch
-    h = agent.hidden_dim
-
-    # Playing policy
-    if arch == "mlp":
-        playing = MLPPolicy(_PLAYING_INPUT_DIM, _PLAYING_ACTION_DIM, h)
-    elif arch == "lstm":
-        playing = LSTMPolicy(_PLAYING_INPUT_DIM, _PLAYING_ACTION_DIM, h)
-    elif arch == "transformer":
-        playing = TransformerPolicy(_PLAYING_INPUT_DIM, _PLAYING_ACTION_DIM, h)
-    elif arch == "gnn":
-        playing = SimpleGNNPolicy(num_nodes=120, node_dim=16,
-                                  action_dim=_PLAYING_ACTION_DIM, hidden_dim=h)
-    elif arch == "dqn":
-        playing = DQN(_PLAYING_INPUT_DIM, _PLAYING_ACTION_DIM, h)
-    else:
-        raise ValueError(f"Unknown architecture: {arch}")
-
     try:
-        playing.load_state_dict(
-            torch.load(agent.model_path, map_location=torch.device("cpu"))
+        playing_policy, resolved_arch = load_model(
+            agent.model_path, agent.arch, agent.hidden_dim, device
         )
-        playing.eval()
-        agent.playing_policy = playing.to(device)
+        agent.playing_policy = playing_policy
+        agent.arch = resolved_arch
     except Exception as e:
         print(f"[WARNING] Failed to load playing weights for {agent.label}: {e}",
               file=sys.stderr)
         agent.playing_policy = None
 
     # Bidding policy — always MLP regardless of playing arch
-    bidding = MLPPolicy(_BIDDING_INPUT_DIM, _BIDDING_ACTION_DIM, h)
-    try:
-        # The checkpoint only stores the playing policy weights; bidding policy
-        # weights are not persisted separately in the current training pipeline.
-        # Fall back to the heuristic bidder for all agents until that changes.
-        agent.bidding_policy = None
-    except Exception:
-        agent.bidding_policy = None
+    agent.bidding_policy = None
 
 
 # ---------------------------------------------------------------------------
@@ -217,6 +191,27 @@ def model_action(agent: AgentSpec, obs: dict, hidden_state, device):
 
     if agent.playing_policy is None:
         return get_heuristic_action(obs), hidden_state
+
+    if agent.arch == "sb3_maskable":
+        # Build the action masks array (boolean, 52 elements)
+        mask = np.zeros(52, dtype=bool)
+        legal_cards = obs["legal_moves"]
+        for s, r in legal_cards:
+            idx = SUITS.index(s) * 13 + (r - 2)
+            mask[idx] = True
+
+        # Stable Baselines 3 expects numpy arrays for predict()
+        obs_tensor = preprocess_playing_obs(obs)
+        obs_numpy = obs_tensor.cpu().numpy()
+
+        action_idx, new_hidden = agent.playing_policy.predict(
+            obs_numpy,
+            action_masks=mask,
+            deterministic=True
+        )
+        action_idx = int(action_idx)
+        card = (SUITS[action_idx // 13], (action_idx % 13) + 2)
+        return card, new_hidden
 
     torch = _get_torch()
     obs_tensor = preprocess_playing_obs(obs).to(device)

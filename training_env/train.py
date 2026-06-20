@@ -131,9 +131,10 @@ def compute_gae(trajectory, gamma, lam):
 
 
 class VectorTrickTakingEnv:
-    def __init__(self, num_envs: int, rules_yaml: str, reward_mode: str = "zero_sum"):
+    def __init__(self, num_envs: int, rules_yaml: str, reward_mode: str = "zero_sum", reward_scale: float = 1.0):
         self.num_envs = num_envs
         self.envs = [TrickTakingEnv(rules_yaml, reward_mode=reward_mode) for _ in range(num_envs)]
+        self.reward_scale = reward_scale
         
     def reset(self):
         obs_list = []
@@ -169,7 +170,7 @@ class VectorTrickTakingEnv:
                 env.accumulated_rewards[0] = 0.0
                 
             obs_list.append(obs)
-            rewards.append(agent_reward)
+            rewards.append(agent_reward * self.reward_scale)
             dones.append(done)
             
         return obs_list, np.array(rewards, dtype=np.float32), np.array(dones, dtype=bool)
@@ -466,7 +467,7 @@ def train(args):
     imitation_time = time.time() - imitation_start
     rl_start = time.time()
     
-    vec_env = VectorTrickTakingEnv(num_envs, args.rules_yaml, reward_mode=args.reward_mode)
+    vec_env = VectorTrickTakingEnv(num_envs, args.rules_yaml, reward_mode=args.reward_mode, reward_scale=getattr(args, "reward_scale", 1.0))
     
     if not getattr(args, "silent", False):
         print(f"\n--- Reinforcement Learning Phase: running {args.episodes} episodes of PPO learning ---")
@@ -1034,6 +1035,7 @@ if __name__ == "__main__":
     parser.add_argument("--entropy_coef", type=float, default=0.01, help="PPO entropy loss coefficient to encourage exploration")
     parser.add_argument("--gae_lambda", type=float, default=0.95, help="GAE lambda parameter for advantage estimation")
     parser.add_argument("--mini_batch_size", type=int, default=64, help="PPO mini-batch size")
+    parser.add_argument("--reward_scale", type=float, default=1.0, help="Reward scaling factor")
     
     args = parser.parse_args()
     train(args)

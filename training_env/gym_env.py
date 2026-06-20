@@ -60,9 +60,10 @@ class GymnasiumTrickTakingWrapper(gym.Env):
     Exposes only the playing phase to the RL agent, auto-stepping 
     bidding/passing phases and opponent turns.
     """
-    def __init__(self, yaml_path, reward_mode="zero_sum"):
+    def __init__(self, yaml_path, reward_mode="zero_sum", reward_scale=1.0):
         super().__init__()
         self.env = TrickTakingEnv(yaml_path, reward_mode=reward_mode)
+        self.reward_scale = reward_scale
         
         # Action space: 52 card play indices
         self.action_space = spaces.Discrete(52)
@@ -126,4 +127,5 @@ class GymnasiumTrickTakingWrapper(gym.Env):
         self.current_obs = obs
         flat_obs = preprocess_playing_obs(obs).numpy()
         
-        return flat_obs, accumulated_reward, done, False, {}
+        scaled_reward = accumulated_reward * self.reward_scale
+        return flat_obs, scaled_reward, done, False, {}

@@ -29,6 +29,7 @@ class GridSearchNamespace:
         self.imitation_cache_path = kwargs.get("imitation_cache_path", "imitation_cache.pt")
         self.force_regenerate_cache = kwargs.get("force_regenerate_cache", False)
         self.imitation_epochs = kwargs.get("imitation_epochs", 10)
+        self.reward_scale = kwargs.get("reward_scale", 1.0)
         
         # PPO parameters
         self.ppo_epochs = kwargs.get("ppo_epochs", 4)
@@ -42,7 +43,7 @@ def run_grid_worker(config_tuple):
     """Worker target function executed in separate parallel processes."""
     (
         arch, lr, hidden_dim, reward_mode, idx, total_runs, 
-        rules_yaml, episodes, imitation_episodes, gamma, silent, num_envs
+        rules_yaml, episodes, imitation_episodes, gamma, silent, num_envs, reward_scale
     ) = config_tuple
     
     # Generate unique run ID to avoid filename collisions
@@ -60,7 +61,8 @@ def run_grid_worker(config_tuple):
         reward_mode=reward_mode,
         silent=silent,
         run_id=run_id,
-        num_envs=num_envs
+        num_envs=num_envs,
+        reward_scale=reward_scale
     )
     
     print(f"[RUN {idx+1}/{total_runs} STARTING] arch={arch}, lr={lr}, hidden={hidden_dim}, mode={reward_mode}")
@@ -90,6 +92,7 @@ def main():
     parser.add_argument("--parallel", action="store_true", help="Run grid search in parallel using multiple worker processes")
     parser.add_argument("--workers", type=int, default=4, help="Number of concurrent worker processes when running in parallel (default: 4)")
     parser.add_argument("--num_envs", type=int, default=1, help="Number of vectorized environments per worker")
+    parser.add_argument("--reward_scale", type=float, default=1.0, help="Reward scaling factor")
     
     # Grid lists to search over (comma-separated strings)
     parser.add_argument("--archs", type=str, default="mlp,lstm,transformer,sb3_maskable", help="Architectures list (comma separated)")
@@ -102,14 +105,16 @@ def main():
 
     run_parallel = args.parallel
 
-    # XPU Multi-process concurrency safety check to prevent Level Zero driver crashes
+    # Concurrency safety check for GPU architectures (XPU and MPS)
     import torch
     is_xpu = hasattr(torch, "xpu") and torch.xpu.is_available()
-    if is_xpu and run_parallel and args.workers > 1:
+    is_mps = hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
+    if (is_xpu or is_mps) and run_parallel and args.workers > 1:
+        backend_name = "Intel XPU" if is_xpu else "Apple MPS"
         print("\n" + "!" * 80)
-        print(" WARNING: Intel XPU (GPU) acceleration is active and --parallel is requested.")
-        print(" Running multiple parallel GPU processes under Windows/Level Zero will likely")
-        print(" cause driver context collisions, GPU hangs, and display crashes.")
+        print(f" WARNING: {backend_name} (GPU) acceleration is active and --parallel is requested.")
+        print(" Running multiple parallel GPU processes under Windows/macOS will likely")
+        print(" cause driver context collisions, GPU hangs, or out-of-memory errors.")
         print(" Automatically overriding to sequential mode (workers = 1) for safety.")
         print("!" * 80 + "\n")
         run_parallel = False
@@ -151,9 +156,19 @@ def main():
     combinations = list(itertools.product(arch_list, lr_list, hidden_dim_list, reward_mode_list))
     total_runs = len(combinations)
     
+    # Determine device for reporting
+    device_name = "cpu"
+    if is_mps:
+        device_name = "mps"
+    elif torch.cuda.is_available():
+        device_name = "cuda"
+    elif is_xpu:
+        device_name = "xpu"
+
     print("=" * 70)
     print(f" STARTING HYPERPARAMETER GRID SEARCH ({total_runs} combinations)")
     print(f" Concurrency: {'parallel (' + str(args.workers) + ' workers)' if run_parallel else 'sequential'}")
+    print(f" Active Device: {device_name}")
     print(f" Vectorized Environments: {args.num_envs}")
     print(f" Rules config: {args.rules_yaml}")
     print(f" Architectures: {arch_list}")
@@ -170,7 +185,7 @@ def main():
     worker_inputs = [
         (
             arch, lr, hidden_dim, reward_mode, idx, total_runs, 
-            args.rules_yaml, args.episodes, args.imitation_episodes, args.gamma, use_silent, args.num_envs
+            args.rules_yaml, args.episodes, args.imitation_episodes, args.gamma, use_silent, args.num_envs, args.reward_scale
         )
         for idx, (arch, lr, hidden_dim, reward_mode) in enumerate(combinations)
     ]
