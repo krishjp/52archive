@@ -12,7 +12,8 @@ dependencies = [
     "numpy",
     "pymongo",
     "gymnasium",
-    "sb3-contrib>=2.0"
+    "sb3-contrib>=2.0",
+    "peft"
 ]
 
 [[tool.uv.index]]

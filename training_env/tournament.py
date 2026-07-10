@@ -26,11 +26,13 @@ Output:
     Optionally saved to a CSV with --output report.csv.
 """
 
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 import argparse
 import csv
-import os
 import random
-import sys
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 

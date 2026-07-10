@@ -38,12 +38,19 @@ class GridSearchNamespace:
         self.entropy_coef = kwargs.get("entropy_coef", 0.01)
         self.gae_lambda = kwargs.get("gae_lambda", 0.95)
         self.mini_batch_size = kwargs.get("mini_batch_size", 64)
+        
+        # LoRA parameters
+        self.use_lora = kwargs.get("use_lora", False)
+        self.lora_rank = kwargs.get("lora_rank", 4)
+        self.lora_alpha = kwargs.get("lora_alpha", 8.0)
+        self.load_model_path = kwargs.get("load_model_path", "")
 
 def run_grid_worker(config_tuple):
     """Worker target function executed in separate parallel processes."""
     (
         arch, lr, hidden_dim, reward_mode, idx, total_runs, 
-        rules_yaml, episodes, imitation_episodes, gamma, silent, num_envs, reward_scale
+        rules_yaml, episodes, imitation_episodes, gamma, silent, num_envs, reward_scale,
+        use_lora, lora_rank, lora_alpha, load_model_path
     ) = config_tuple
     
     # Generate unique run ID to avoid filename collisions
@@ -62,10 +69,15 @@ def run_grid_worker(config_tuple):
         silent=silent,
         run_id=run_id,
         num_envs=num_envs,
-        reward_scale=reward_scale
+        reward_scale=reward_scale,
+        use_lora=use_lora,
+        lora_rank=lora_rank,
+        lora_alpha=lora_alpha,
+        load_model_path=load_model_path
     )
     
-    print(f"[RUN {idx+1}/{total_runs} STARTING] arch={arch}, lr={lr}, hidden={hidden_dim}, mode={reward_mode}")
+    lora_str = f", lora=True(r={lora_rank},a={lora_alpha})" if use_lora else ""
+    print(f"[RUN {idx+1}/{total_runs} STARTING] arch={arch}, lr={lr}, hidden={hidden_dim}, mode={reward_mode}{lora_str}")
     start_time = time.time()
     try:
         metrics = train(run_args)
@@ -93,6 +105,12 @@ def main():
     parser.add_argument("--workers", type=int, default=4, help="Number of concurrent worker processes when running in parallel (default: 4)")
     parser.add_argument("--num_envs", type=int, default=1, help="Number of vectorized environments per worker")
     parser.add_argument("--reward_scale", type=float, default=1.0, help="Reward scaling factor")
+    
+    # LoRA Specific Arguments
+    parser.add_argument("--use_lora", action="store_true", help="Apply Low-Rank Adaptation (LoRA) to the policy network")
+    parser.add_argument("--lora_rank", type=int, default=4, help="Rank of LoRA adaptation")
+    parser.add_argument("--lora_alpha", type=float, default=8.0, help="Alpha parameter for LoRA adaptation")
+    parser.add_argument("--load_model_path", type=str, default="", help="Path to pre-trained model weights to load before RL/LoRA training")
     
     # Grid lists to search over (comma-separated strings)
     parser.add_argument("--archs", type=str, default="mlp,lstm,transformer,sb3_maskable", help="Architectures list (comma separated)")
@@ -185,7 +203,8 @@ def main():
     worker_inputs = [
         (
             arch, lr, hidden_dim, reward_mode, idx, total_runs, 
-            args.rules_yaml, args.episodes, args.imitation_episodes, args.gamma, use_silent, args.num_envs, args.reward_scale
+            args.rules_yaml, args.episodes, args.imitation_episodes, args.gamma, use_silent, args.num_envs, args.reward_scale,
+            args.use_lora, args.lora_rank, args.lora_alpha, args.load_model_path
         )
         for idx, (arch, lr, hidden_dim, reward_mode) in enumerate(combinations)
     ]

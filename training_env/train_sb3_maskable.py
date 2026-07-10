@@ -27,25 +27,30 @@ def train_sb3(args):
     env = GymnasiumTrickTakingWrapper(args.rules_yaml, reward_mode=args.reward_mode, reward_scale=getattr(args, "reward_scale", 1.0))
     
     # Initialize MaskablePPO model
-    policy_kwargs = dict(
-        net_arch=dict(pi=[args.hidden_dim, args.hidden_dim], vf=[args.hidden_dim, args.hidden_dim])
-    )
-    
-    model = MaskablePPO(
-        "MlpPolicy",
-        env,
-        learning_rate=args.lr,
-        n_steps=512,
-        batch_size=args.mini_batch_size,
-        n_epochs=args.ppo_epochs,
-        gamma=args.gamma,
-        gae_lambda=args.gae_lambda,
-        clip_range=args.clip_eps,
-        ent_coef=args.entropy_coef,
-        policy_kwargs=policy_kwargs,
-        verbose=1,
-        device=device
-    )
+    if getattr(args, "load_model_path", ""):
+        print(f"Loading pre-trained SB3 model from {args.load_model_path}...")
+        model = MaskablePPO.load(args.load_model_path, env=env, device=device)
+        model.learning_rate = args.lr
+    else:
+        policy_kwargs = dict(
+            net_arch=dict(pi=[args.hidden_dim, args.hidden_dim], vf=[args.hidden_dim, args.hidden_dim])
+        )
+        
+        model = MaskablePPO(
+            "MlpPolicy",
+            env,
+            learning_rate=args.lr,
+            n_steps=512,
+            batch_size=args.mini_batch_size,
+            n_epochs=args.ppo_epochs,
+            gamma=args.gamma,
+            gae_lambda=args.gae_lambda,
+            clip_range=args.clip_eps,
+            ent_coef=args.entropy_coef,
+            policy_kwargs=policy_kwargs,
+            verbose=1,
+            device=device
+        )
     
     # Load or generate imitation dataset for pre-training
     imitation_cache_path = args.imitation_cache_path
@@ -88,6 +93,15 @@ def train_sb3(args):
                     epoch_loss += loss.item()
                 print(f"BC Epoch {epoch+1}/{args.imitation_epochs} | Loss: {epoch_loss/num_batches:.4f}")
                 
+    # Apply LoRA if requested
+    if getattr(args, "use_lora", False):
+        from models import apply_lora_to_model
+        print(f"Applying LoRA to SB3 policy (rank={args.lora_rank}, alpha={args.lora_alpha})...")
+        model.policy = apply_lora_to_model(model.policy, rank=args.lora_rank, alpha=args.lora_alpha)
+        # Recreate optimizer to optimize only trainable parameters
+        trainable_params = [p for p in model.policy.parameters() if p.requires_grad]
+        model.policy.optimizer = torch.optim.Adam(trainable_params, lr=args.lr)
+
     # Online Reinforcement Learning Phase
     print(f"\n--- Reinforcement Learning Phase: running {args.episodes} timesteps of MaskablePPO ---")
     model.learn(total_timesteps=args.episodes)
@@ -95,6 +109,13 @@ def train_sb3(args):
     # Save the trained model weights
     suffix = f"_{getattr(args, 'run_id', '')}" if getattr(args, 'run_id', '') else f"_{int(time.time())}"
     model_name = f"model_sb3_maskable_{args.rules_yaml.split('.')[0]}{suffix}.zip"
+    
+    # Merge LoRA weights back if LoRA was used
+    if getattr(args, "use_lora", False):
+        from models import merge_lora_weights
+        print("Merging LoRA weights back into SB3 base model structure...")
+        model.policy = merge_lora_weights(model.policy)
+        
     model.save(model_name)
     print(f"Model saved successfully to {model_name}")
 
@@ -141,6 +162,12 @@ if __name__ == "__main__":
     parser.add_argument("--gae_lambda", type=float, default=0.95, help="GAE lambda parameter")
     parser.add_argument("--mini_batch_size", type=int, default=64, help="PPO mini-batch size")
     parser.add_argument("--reward_scale", type=float, default=1.0, help="Reward scaling factor")
+    
+    # LoRA Specific Arguments
+    parser.add_argument("--use_lora", action="store_true", help="Apply Low-Rank Adaptation (LoRA) to the policy network")
+    parser.add_argument("--lora_rank", type=int, default=4, help="Rank of LoRA adaptation")
+    parser.add_argument("--lora_alpha", type=float, default=8.0, help="Alpha parameter for LoRA adaptation")
+    parser.add_argument("--load_model_path", type=str, default="", help="Path to pre-trained model weights/zip to load before RL/LoRA training")
     
     args = parser.parse_args()
     train_sb3(args)

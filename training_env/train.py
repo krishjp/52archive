@@ -382,6 +382,15 @@ def train(args):
         playing_policy = DQN(input_dim=112, action_dim=52, hidden_dim=args.hidden_dim).to(device)
     else:
         raise ValueError(f"Unknown architecture {args.arch}")
+
+    # Load model weights if load_model_path is specified
+    if getattr(args, "load_model_path", ""):
+        if not getattr(args, "silent", False):
+            print(f"Loading pre-trained model weights from: {args.load_model_path}")
+        try:
+            playing_policy.load_state_dict(torch.load(args.load_model_path, map_location=device))
+        except Exception as e:
+            print(f"Failed to load model weights from {args.load_model_path}: {e}")
         
     # ── Critic / DQN target setup ─────────────────────────────────────────────
     # Built before imitation so the shared optimizer covers all parameters from
@@ -465,6 +474,27 @@ def train(args):
         )
 
     imitation_time = time.time() - imitation_start
+
+    # ── Apply LoRA if requested ──────────────────────────────────────────────
+    if getattr(args, "use_lora", False):
+        from models import apply_lora_to_model
+        if not getattr(args, "silent", False):
+            print(f"Applying LoRA to Playing Policy (rank={args.lora_rank}, alpha={args.lora_alpha})...")
+        playing_policy = apply_lora_to_model(playing_policy, rank=args.lora_rank, alpha=args.lora_alpha)
+        
+        # Re-create optimizer_play to optimize only trainable parameters
+        if args.arch == "dqn":
+            target_policy = apply_lora_to_model(target_policy, rank=args.lora_rank, alpha=args.lora_alpha)
+            target_policy.load_state_dict(playing_policy.state_dict())
+            target_policy.eval()
+            optimizer_play = optim.Adam(
+                [p for p in playing_policy.parameters() if p.requires_grad], lr=args.lr
+            )
+        else:
+            optimizer_play = optim.Adam(
+                list(p for p in playing_policy.parameters() if p.requires_grad) + list(playing_critic.parameters()), lr=args.lr
+            )
+
     rl_start = time.time()
     
     vec_env = VectorTrickTakingEnv(num_envs, args.rules_yaml, reward_mode=args.reward_mode, reward_scale=getattr(args, "reward_scale", 1.0))
@@ -849,6 +879,12 @@ def train(args):
     plot_name = f"plot_{run_info}.png"
     if not getattr(args, "silent", False):
         print(f"Training finished successfully. Saving model to {model_name}")
+    # If LoRA was used, merge weights back into the original linear layers before saving
+    if getattr(args, "use_lora", False):
+        from models import merge_lora_weights
+        if not getattr(args, "silent", False):
+            print("Merging LoRA weights back into base model structure...")
+        playing_policy = merge_lora_weights(playing_policy)
     torch.save(playing_policy.state_dict(), model_name)
 
     # Save CSV Report
@@ -1036,6 +1072,12 @@ if __name__ == "__main__":
     parser.add_argument("--gae_lambda", type=float, default=0.95, help="GAE lambda parameter for advantage estimation")
     parser.add_argument("--mini_batch_size", type=int, default=64, help="PPO mini-batch size")
     parser.add_argument("--reward_scale", type=float, default=1.0, help="Reward scaling factor")
+    
+    # LoRA Specific Arguments
+    parser.add_argument("--use_lora", action="store_true", help="Apply Low-Rank Adaptation (LoRA) to the policy network")
+    parser.add_argument("--lora_rank", type=int, default=4, help="Rank of LoRA adaptation")
+    parser.add_argument("--lora_alpha", type=float, default=8.0, help="Alpha parameter for LoRA adaptation")
+    parser.add_argument("--load_model_path", type=str, default="", help="Path to pre-trained model weights to load before RL/LoRA training")
     
     args = parser.parse_args()
     train(args)
