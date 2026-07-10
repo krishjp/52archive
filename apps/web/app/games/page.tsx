@@ -325,7 +325,8 @@ export default function GamesPage() {
   function renderTextRules(rules: string) {
     return (
       <div className="text-rules-container">
-        <style dangerouslySetInnerHTML={{ __html: `
+        <style dangerouslySetInnerHTML={{
+          __html: `
           .text-rules-container h1, .text-rules-container h2, .text-rules-container h3, .text-rules-container h4 {
             color: ${theme.colors.accent};
             margin-top: 20px;
@@ -756,8 +757,8 @@ export default function GamesPage() {
                     {selectedGame.maxPlayers && selectedGame.maxPlayers !== selectedGame.minPlayers
                       ? `${selectedGame.minPlayers} – ${selectedGame.maxPlayers} players`
                       : selectedGame.maxPlayers === selectedGame.minPlayers
-                      ? `${selectedGame.minPlayers} players`
-                      : `${selectedGame.minPlayers}+ players`}
+                        ? `${selectedGame.minPlayers} players`
+                        : `${selectedGame.minPlayers}+ players`}
                   </div>
                 </div>
                 <div>
@@ -1021,12 +1022,12 @@ export default function GamesPage() {
                     .split(",")
                     .map(s => parseInt(s.trim(), 10))
                     .filter(n => !isNaN(n) && n >= 0 && n < 19);
-                  
+
                   if (parsed.length === 0) {
                     toast.error("Please enter at least one valid round index (0-18)");
                     return;
                   }
-                  
+
                   setShowSetupModal(false);
                   handlePlayGame(setupGame!, parsed, turnSelectionMode);
                 }}
@@ -1199,7 +1200,7 @@ export default function GamesPage() {
 
               {/* Right Panel: Game Board */}
               <div style={{ flex: 1, padding: 20, display: "flex", flexDirection: "column", gap: 18, overflowY: "auto", background: theme.colors.surface }}>
-                
+
                 {/* Trump & Phase Header */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                   <div style={{ background: theme.colors.surfaceRaised, border: `1px solid ${theme.colors.border}`, padding: 12, borderRadius: 16, textAlign: "center" }}>
@@ -1302,9 +1303,9 @@ export default function GamesPage() {
                               color: isRed ? "#c92a2a" : theme.colors.text
                             }}
                           >
-                            <span style={{ fontSize: 12, textAlign: "left" }}>{rankLabel}</span>
+                            <span style={{ fontSize: 12, textAlign: "left", display: "block" }}>{rankLabel}</span>
                             <span style={{ fontSize: 24, textAlign: "center", alignSelf: "center", margin: "-4px 0" }}>{suitSym}</span>
-                            <span style={{ fontSize: 12, textAlign: "right", transform: "rotate(180deg)" }}>{rankLabel}</span>
+                            <span style={{ fontSize: 12, textAlign: "left", display: "block", transform: "rotate(180deg)" }}>{rankLabel}</span>
                           </div>
                           <span style={{ fontSize: 10, color: theme.colors.muted, fontWeight: 600 }}>
                             {trickPlayer === 0 ? "You" : `AI ${trickPlayer}`}
@@ -1343,7 +1344,7 @@ export default function GamesPage() {
                   {simObservation.hand?.map((card: [string, number], idx: number) => {
                     const suit = card[0];
                     const rank = card[1];
-                    
+
                     // A card is playable if we are in playing/passing phase, it is our turn, and it is a legal move
                     const isBidding = simObservation.phase === "bidding";
                     const isOurTurn = simObservation.player_id === 0;
@@ -1396,7 +1397,7 @@ export default function GamesPage() {
                       >
                         <span style={{ fontSize: 13, textAlign: "left", display: "block" }}>{rankLabel}</span>
                         <span style={{ fontSize: 26, textAlign: "center", alignSelf: "center", margin: "-6px 0" }}>{suitSym}</span>
-                        <span style={{ fontSize: 13, textAlign: "right", display: "block", transform: "rotate(180deg)" }}>{rankLabel}</span>
+                        <span style={{ fontSize: 13, textAlign: "left", display: "block", transform: "rotate(180deg)" }}>{rankLabel}</span>
                       </button>
                     );
                   })}
@@ -1485,12 +1486,12 @@ export default function GamesPage() {
 
                     return (
                       <div style={{ width: "100%", display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
-                        <div style={{ fontSize: 22, fontWeight: 800, color: theme.colors.accent, textAlign: "center", textTransform: "uppercase", letterSpacing: "1px" }}>
-                          Game Complete!
+                        <div style={{ fontSize: 22, fontWeight: 800, color: theme.colors.accent, textAlign: "center", letterSpacing: "1px" }}>
+                          Game Complete.
                         </div>
                         <div style={{ background: theme.colors.paper, padding: "16px 24px", borderRadius: 16, border: `1px solid ${theme.colors.border}`, width: "100%", maxWidth: 400 }}>
                           <div style={{ fontSize: 16, fontWeight: 800, color: theme.colors.text, marginBottom: 12, textAlign: "center" }}>
-                            🏆 Final Scoreboard Standings
+                            Final Scoreboard
                           </div>
                           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                             {sortedPlayers.map((p) => {
@@ -1510,7 +1511,7 @@ export default function GamesPage() {
                                   }}
                                 >
                                   <span>
-                                    {isWinner ? "👑 " : ""}{p.name}
+                                    {p.name}
                                   </span>
                                   <span style={{ fontWeight: 800 }}>{p.score} pts</span>
                                 </div>

@@ -67,6 +67,7 @@ plot_*.png
 training_report.csv
 training_report.txt
 training_reward_plot.png
+*model_sb3_*.zip
 
 # Python bytecode and caches
 __pycache__/

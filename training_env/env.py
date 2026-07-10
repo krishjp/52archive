@@ -105,6 +105,8 @@ class TrickTakingEnv:
             self.passing_sequence = passing_block.get("passing_sequence", ["left", "right", "across", "none"])
             
             self.bidding_required = "Bidding_Phase" in blocks
+            bidding_block = blocks.get("Bidding_Phase", {})
+            self.hook_rule = bidding_block.get("restrictions", {}).get("hook_rule", False)
         else:
             rules_conf = self.config.get("rules", {})
             scoring_conf = rules_conf.get("scoring", {})
@@ -118,6 +120,7 @@ class TrickTakingEnv:
             self.passing_sequence = mechanics.get("passingSequence", ["left", "right", "across", "none"])
             
             self.bidding_required = mechanics.get("biddingRequired", self.scoring_type != "card_points")
+            self.hook_rule = mechanics.get("hookRule", False) or mechanics.get("restrictions", {}).get("hook_rule", False)
 
         # Standard 52 card deck
         # Cards: Suit (0=Clubs, 1=Diamonds, 2=Hearts, 3=Spades), Rank (2-14, 11=J, 12=Q, 13=K, 14=A)
@@ -132,11 +135,18 @@ class TrickTakingEnv:
         self.hands = {p: [] for p in range(self.num_players)}
         self.tricks_won = {p: 0 for p in range(self.num_players)}
         self.bids = {p: 0 for p in range(self.num_players)}
+        self.players_bid = set()
         self.scores = {p: 0 for p in range(self.num_players)}
         self.round_card_points = {p: 0 for p in range(self.num_players)}
         self.accumulated_rewards = {p: 0.0 for p in range(self.num_players)}
         self.passed_cards = {p: [] for p in range(self.num_players)}
-        self.round_idx = round_idx if round_idx is not None else 0
+        if round_idx is not None:
+            self.round_idx = round_idx
+        else:
+            if hasattr(self, "deal_sequence") and self.deal_sequence:
+                self.round_idx = random.randint(0, len(self.deal_sequence) - 1)
+            else:
+                self.round_idx = 0
         self.starting_player = starting_player
         
         # Shuffle and Deal
@@ -147,10 +157,13 @@ class TrickTakingEnv:
         if cards_per_player is not None:
             self.cards_per_player = cards_per_player
         else:
-            if not hasattr(self, "cards_per_player") or self.cards_per_player is None:
-                self.cards_per_player = min(10, len(shuffled_deck) // self.num_players)
+            if hasattr(self, "deal_sequence") and self.deal_sequence:
+                seq_idx = self.round_idx % len(self.deal_sequence)
+                self.cards_per_player = self.deal_sequence[seq_idx]
             else:
-                self.cards_per_player = min(self.cards_per_player, len(shuffled_deck) // self.num_players)
+                if not hasattr(self, "cards_per_player") or self.cards_per_player is None:
+                    self.cards_per_player = min(10, len(shuffled_deck) // self.num_players)
+            self.cards_per_player = min(self.cards_per_player, len(shuffled_deck) // self.num_players)
                 
         for p in range(self.num_players):
             self.hands[p] = sorted(
@@ -220,8 +233,19 @@ class TrickTakingEnv:
             return [c for c in hand if c not in passed]
             
         if self.phase == "bidding":
+            if player_id in getattr(self, "players_bid", set()):
+                return []
             # During bidding phase, bid options (e.g. 0 to cards_per_player)
-            return list(range(self.cards_per_player + 1))
+            all_bids = list(range(self.cards_per_player + 1))
+            if getattr(self, "hook_rule", False):
+                # The hook rule applies to the last bidder (dealer) of the round
+                last_bidder = (self.starting_player - 1) % self.num_players
+                if player_id == last_bidder:
+                    sum_other_bids = sum(self.bids[p] for p in range(self.num_players) if p != player_id)
+                    forbidden_bid = self.cards_per_player - sum_other_bids
+                    if forbidden_bid in all_bids:
+                        all_bids.remove(forbidden_bid)
+            return all_bids
             
         hand = self.hands[player_id]
         if not self.lead_suit:
@@ -243,6 +267,8 @@ class TrickTakingEnv:
         During playing: action is a tuple (suit, rank) from the player's hand.
         """
         player = self.current_turn
+        if self.phase == "completed":
+            return self._get_obs(player), 0.0, True, {}
         done = False
         
         if self.phase == "passing":
@@ -266,9 +292,11 @@ class TrickTakingEnv:
             return self._get_obs(self.current_turn), 0.0, done, {}
             
         if self.phase == "bidding":
+            assert player not in self.players_bid, f"Player {player} has already bid in this round"
             self.bids[player] = int(action)
+            self.players_bid.add(player)
             self.current_turn = (self.current_turn + 1) % self.num_players
-            if len(self.bids) == self.num_players:
+            if len(self.players_bid) == self.num_players:
                 self.phase = "playing"
             return self._get_obs(self.current_turn), 0.0, done, {}
             
@@ -307,7 +335,7 @@ class TrickTakingEnv:
                         self.round_card_points[winner] += pts
             
             # Distribute trick-won or throwaway rewards to all players if in shaped mode
-            if self.reward_mode == "shaped":
+            if self.reward_mode in ("shaped", "aware_shape"):
                 for p in range(self.num_players):
                     bid = self.bids[p]
                     won = self.tricks_won[p]
@@ -325,7 +353,7 @@ class TrickTakingEnv:
                             self.accumulated_rewards[p] += 5.0  # reward for successfully avoiding winning / throwing off cards
             
             # Check for penalty/point cards if shaped mode is selected
-            if self.reward_mode == "shaped":
+            if self.reward_mode in ("shaped", "aware_shape"):
                 if self.card_point_rules:
                     for p_play, c in self.current_trick:
                         for rule in self.card_point_rules:
@@ -394,6 +422,24 @@ class TrickTakingEnv:
                                 self.accumulated_rewards[p] += self.reward_weights.get("terminal_win", 150)
                             else:
                                 self.accumulated_rewards[p] += self.reward_weights.get("terminal_loss", -150)
+                elif self.reward_mode == "aware_shape":
+                    # Build the same base terminal values as zero_sum, then relativize
+                    # against opponents — giving the dense shaped mid-game signals
+                    # but making the terminal outcome opponent-aware.
+                    base_rewards = {}
+                    for p in range(self.num_players):
+                        if self.scoring_type == "card_points":
+                            multiplier = -1.0 if self.scoring_goal == "minimize" else 1.0
+                            base_rewards[p] = float(self.scores[p] * multiplier)
+                        else:
+                            if self.tricks_won[p] == self.bids[p]:
+                                base_rewards[p] = float(self.reward_weights.get("terminal_win", 150))
+                            else:
+                                base_rewards[p] = float(self.reward_weights.get("terminal_loss", -150))
+
+                    for p in range(self.num_players):
+                        opponents_rewards = [base_rewards[opp] for opp in range(self.num_players) if opp != p]
+                        self.accumulated_rewards[p] += base_rewards[p] - float(np.mean(opponents_rewards))
 
         # Retrieve the accumulated rewards for the acting player since their last step
         reward_returned = self.accumulated_rewards[player]
@@ -515,7 +561,7 @@ class TrickTakingEnv:
                     if p == shooter:
                         self.scores[p] = 0
                         # If shaped mode, offset the trick-play card point penalties the shooter accumulated
-                        if self.reward_mode == "shaped":
+                        if self.reward_mode in ("shaped", "aware_shape"):
                             self.accumulated_rewards[p] += float(total_possible_points)
                     else:
                         self.scores[p] = shoot_penalty

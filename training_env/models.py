@@ -1,3 +1,11 @@
+import sys
+import types
+import importlib.machinery
+spec = importlib.machinery.ModuleSpec("torchaudio", loader=None)
+dummy_torchaudio = types.ModuleType("torchaudio")
+dummy_torchaudio.__spec__ = spec
+sys.modules['torchaudio'] = dummy_torchaudio
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -37,7 +45,7 @@ class LSTMPolicy(nn.Module):
             
         emb = F.relu(self.fc_in(x))
         lstm_out, hidden = self.lstm(emb, hidden)
-        logits = self.fc_out(lstm_out[:, -1, :]) # Predict on the last output
+        logits = self.fc_out(F.relu(lstm_out[:, -1, :])) # Predict on the last output
         return logits, hidden
 
 
@@ -140,4 +148,78 @@ class TransformerPolicy(nn.Module):
         logits = self.fc_out(out[:, -1, :])
         
         return logits, history
+
+
+class DQN(nn.Module):
+    """
+    Deep Q-Network for card games.
+    """
+    def __init__(self, input_dim: int, action_dim: int, hidden_dim: int = 128):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, action_dim)
+        )
+        
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.net(x)
+
+
+def apply_lora_to_model(model: nn.Module, rank: int = 4, alpha: float = 8.0) -> nn.Module:
+    """
+    Wraps the given model using Hugging Face's PEFT LoRA implementation.
+    Targets linear layers (ignoring numeric sequential indexes and value_net to avoid PEFT errors).
+    """
+    from peft import LoraConfig, get_peft_model
+    
+    # Rename digit-based child names inside Sequential to prevent PEFT name resolution issues
+    for name, module in list(model.named_modules()):
+        if isinstance(module, nn.Sequential):
+            for child_name, child in list(module.named_children()):
+                if child_name.isdigit():
+                    new_name = f"layer_{child_name}"
+                    delattr(module, child_name)
+                    module.add_module(new_name, child)
+    
+    # Identify all nn.Linear target modules, avoiding numeric indices and value_net
+    target_modules = []
+    for name, module in model.named_modules():
+        if isinstance(module, nn.Linear):
+            parts = name.split(".")
+            # Avoid numeric indices and value_net to prevent name collisions on Sequential layers
+            if "value_net" not in parts and not any(p.isdigit() for p in parts):
+                target_modules.append(parts[-1])
+                
+    target_modules = list(set(target_modules))
+    
+    if not target_modules:
+        return model
+        
+    peft_config = LoraConfig(
+        r=rank,
+        lora_alpha=int(alpha),
+        target_modules=target_modules,
+        bias="none",
+        task_type=None
+    )
+    
+    # Wrap model via PEFT
+    peft_model = get_peft_model(model, peft_config)
+    return peft_model
+
+
+def merge_lora_weights(model: nn.Module) -> nn.Module:
+    """
+    Merges the LoRA adapter weights back into the base model parameters
+    using PEFT's native merge_and_unload.
+    """
+    from peft import PeftModel
+    if isinstance(model, PeftModel):
+        return model.merge_and_unload()
+    return model
+
+
 

@@ -27,7 +27,7 @@ Use when:
    - **Types & Traversals**: Go to [packages/core/SKILL.md](packages/core/SKILL.md) to check schemas or update MCTS/Minimax AI engines.
    - **Graph Editor Frontend**: Go to [apps/web/SKILL.md](apps/web/SKILL.md) to edit Next.js pointer event panning/zooming canvas elements.
    - **Express API**: Go to [apps/server/SKILL.md](apps/server/SKILL.md) to configure REST routes or collaborative Socket.io game lock events.
-   - **Database Setup**: Go to [db/SKILL.md](db/SKILL.md) to inspect PostgreSQL schemas, table indices, or run DockerCompose.
+   - **Database Setup**: Go to [db/SKILL.md](db/SKILL.md) to inspect MongoDB schemas, collection indices, or run DockerCompose.
    - **Mobile App**: Go to [apps/mobile/SKILL.md](apps/mobile/SKILL.md) to edit the Expo native iOS shell.
 2. **Synchronize Changes**:
    Ensure modifications across packages (e.g. changing model schemas in core) are verified in dependent modules (e.g. training environment or web editor page).

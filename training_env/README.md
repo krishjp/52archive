@@ -9,11 +9,13 @@ This directory contains the reinforcement learning (RL) training pipeline and in
    - Loads rules (number of decks, players, bidding policies, trump selection constraints, scoring systems, and reward weights) dynamically from a YAML file.
    - Implements standardized step mechanics, card distribution, valid turn masking, and scoring tallies.
    - Fully supports 5 scoring rules: `exact_bid_only` (e.g., Oh Hell), `tricks_only`, `bid_matching_bonus`, `penalty_for_undertricks`, and `penalty_for_overtricks`.
+   - Simulates complete sequential bidding where the `"playing"` phase only begins once all players have bid.
+   - Dynamically resolves hand sizes using the ruleset's `deal_sequence` (falling back to a random round of the sequence during training to expose the model to varying hand sizes).
 
 2. **[models.py](models.py)**:
    - Contains PyTorch neural network policy structures.
    - **`MLPPolicy`**: Simple feedforward network mapping flattened observations to action distributions.
-   - **`LSTMPolicy`**: Sequence-aware recurrent policy capable of encoding the history of played cards, round bidding contexts, and teammate plays.
+   - **`LSTMPolicy`**: Sequence-aware recurrent policy capable of encoding the history of played cards, round bidding contexts, and teammate plays. Includes a sequential ReLU activation layer following the recurrent output to map non-linear features before projecting to action logits.
     - **`SimpleGNNPolicy`**: Represents card values, suits, and players as graph nodes. Features an embedding vocabulary of 120 indices with message passing over 30 active indices (mock structure currently using identity adjacency matrices).
 
 3. **[train.py](train.py)**:
@@ -98,3 +100,8 @@ You can run a search across combinations of architectures, learning rates, rewar
 *   **Console Output**: Prints a sorted leaderboard of all completed runs based on the highest average reward achieved in the last 10% of RL episodes.
 *   **Consolidated Report**: Saves a CSV report (e.g., `grid_search_report_*.csv`) containing parameters, scores, training durations, and model filenames.
 *   **Best Model Auto-Caching**: Automatically copies the weights of the best performing configuration to `agent_model.pt` so you can immediately play against it in the preview CLI.
+
+# Attaching a model to a game-id
+python attach_model_direct.py --game_id XXX-XXXX-XXXX --model_path XXXX --arch XXXX --hidden_dim XXX
+
+python attach_model_direct.py --mongo_uri "mongodb+srv://<username>:<password>@<cluster-url>/52archive?retryWrites=true&w=majority"
